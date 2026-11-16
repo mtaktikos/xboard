@@ -94,12 +94,24 @@ static char lastLine[2][MSG_SIZ];
 static char header[2][MSG_SIZ];
 static char columnHeader[MSG_SIZ] = "dep\tscore\tnodes\ttime\t(not shown:  tbhits\tknps\tseldep)\n";
 static int  columnMask = 0xF0;
+// [DS] position/length of the block of lines belonging to the depth currently on display,
+// so that a new depth can overwrite it in place instead of pushing the whole log down
+static int  blockStart[2] = { 0, 0 }, blockLen[2] = { 0, 0 };
 
 #define MAX_VAR 400
 static int scores[MAX_VAR], textEnd[MAX_VAR], keys[MAX_VAR], curDepth[2], nrVariations[2];
 static char fail[MAX_VAR];
 
 extern int initialRulePlies;
+
+// [DS] value of the engine's MultiPV setting (0 if the engine has no such option)
+static int
+MultiPvValue (int which)
+{
+    ChessProgramState *cps = (which ? &second : &first);
+    int i = MultiPV(cps, 1);
+    return i >= 0 ? cps->option[i].value : 0;
+}
 
 void
 MakeEngineOutputTitle ()
@@ -251,6 +263,18 @@ SetProgramStats (FrontEndProgramStats * stats) // now directly called by back-en
           }
           InsertIntoMemo( which, header[which], 0);
         }
+        blockLen[which] = 0;
+        blockStart[which] = strlen(header[which]);
+    }
+
+    // [DS] Multi-PV in Analysis mode: let the lines of the new depth replace those of the
+    // previous depth in place (Nibbler/Arena style), instead of pushing the whole log down
+    // at every depth.
+    if(gameMode == AnalyzeMode && blockLen[which] > 0 && depth != lastDepth[which]
+       && MultiPvValue(which) > 1) {
+        DeleteMemoRange(which, blockStart[which], blockLen[which]);
+        blockLen[which] = 0;
+        nrVariations[which] = 0;
     }
 
     if(ed.pv && ed.pv[0] && ParseOneMove(ed.pv, currentMove, &moveType, &ff, &rf, &ft, &rt, &pc))
@@ -656,6 +680,10 @@ UpdateControls (EngineOutputData *ed)
 
         /* Update memo */
         InsertIntoMemo( ed->which, buf, InsertionPoint(strlen(buf), ed) );
+        if(gameMode == AnalyzeMode) { // [DS] size of the block belonging to the current depth
+            if(blockLen[ed->which] == 0) blockStart[ed->which] = strlen(header[ed->which]);
+            blockLen[ed->which] += strlen(buf);
+        }
         strncpy(lastLine[ed->which], buf, MSG_SIZ);
     }
 

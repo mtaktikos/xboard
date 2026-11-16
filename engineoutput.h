@@ -67,6 +67,7 @@ void SetIcon( int which, int field, int nIcon );
 void DoSetWindowText(int which, int field, char *s_label);
 void InsertIntoMemo( int which, char * text, int where );
 void DoClearMemo(int which);
+void DeleteMemoRange(int which, int start, int len);
 void ResizeWindowControls( int mode );
 int  EngineOutputDialogExists();
 void SetEngineOutputTitle( char *title );
