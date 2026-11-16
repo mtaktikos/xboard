@@ -433,6 +433,15 @@ void DoClearMemo(int which)
         SendMessage( outputField[which][nMemo], WM_SETTEXT, 0, (LPARAM) "" );
 }
 
+// front end. Remove a range of characters from the output control, so that the
+// Multi-PV block for a new depth can replace the previous one in place.
+void DeleteMemoRange(int which, int start, int len)
+{
+    if(len <= 0) return;
+    SendMessage( outputField[which][nMemo], EM_SETSEL, start, start + len );
+    SendMessage( outputField[which][nMemo], EM_REPLACESEL, (WPARAM) FALSE, (LPARAM) "" );
+}
+
 // front end (because only other front-end wants to know)
 int EngineOutputIsUp()
 {
