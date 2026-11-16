@@ -1,7 +1,8 @@
 /*
  * pgntags.c -- Functions to manage PGN tags
  *
- * Copyright 1995, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * Copyright 1995, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * Enhancements Copyright 2005 Alessandro Scotti
  *
@@ -114,8 +115,16 @@ ParsePGNTag (char *tag, GameInfo *gameInfo)
 	success = TRUE;
     } else if (StrCaseCmp(name, "Variant") == 0) {
         /* xboard-defined extension */
+        int oldVariant = gameInfo->variant;
+	success = StrSavePtr(value, &gameInfo->variantName) != NULL;
+        if(*value && strcmp(value, engineVariant)) // keep current engine-defined variant if it matches
+            gameInfo->variant = StringToVariant(value);
+        if(oldVariant != VariantNormal) safeStrCpy(engineVariant, value, MSG_SIZ);
+    } else if (StrCaseCmp(name, "VariantFamily") == 0) {
+        /* xboard-defined extension */
         gameInfo->variant = StringToVariant(value);
-	success = TRUE;
+    } else if (StrCaseCmp(name, "VariantMen") == 0) {
+        success = LoadPieceDesc(value);
     } else if (StrCaseCmp(name, PGN_OUT_OF_BOOK) == 0) {
         /* [AS] Out of book annotation */
         success = StrSavePtr(value, &gameInfo->outOfBook) != NULL;
@@ -144,6 +153,7 @@ ParsePGNTag (char *tag, GameInfo *gameInfo)
 void
 PrintPGNTags (FILE *fp, GameInfo *gameInfo)
 {
+    char *p;
     fprintf(fp, "[Event \"%s\"]\n", gameInfo->event ? gameInfo->event : "?");
     fprintf(fp, "[Site \"%s\"]\n", gameInfo->site ? gameInfo->site : "?");
     fprintf(fp, "[Date \"%s\"]\n", gameInfo->date ? gameInfo->date : "?");
@@ -157,8 +167,17 @@ PrintPGNTags (FILE *fp, GameInfo *gameInfo)
 	fprintf(fp, "[BlackElo \"%d\"]\n", gameInfo->blackRating);
     if (gameInfo->timeControl)
 	fprintf(fp, "[TimeControl \"%s\"]\n", gameInfo->timeControl);
-    if (gameInfo->variant != VariantNormal)
+    if (gameInfo->variant != VariantNormal) {
+	char c = *engineVariant;
         fprintf(fp, "[Variant \"%s\"]\n", VariantName(gameInfo->variant));
+	if(c) {
+	    *engineVariant = NULLCHAR;
+	    fprintf(fp, "[VariantFamily \"%s\"]\n", VariantName(gameInfo->variant));
+            *engineVariant = c;
+        }
+    }
+    if (*(p = CollectPieceDescriptors()))
+        fprintf(fp, "[VariantMen \"%s\"]\n", p);
     if (gameInfo->extraTags)
 	fputs(gameInfo->extraTags, fp);
 }
@@ -185,7 +204,7 @@ PGNTags (GameInfo *gameInfo)
     if (gameInfo->whiteRating >= 0) len += 40;
     if (gameInfo->blackRating >= 0) len += 40;
     if (gameInfo->timeControl) len += strlen(gameInfo->timeControl) + 20;
-    if (gameInfo->variant != VariantNormal) len += 50;
+    if (gameInfo->variant != VariantNormal) len += strlen(engineVariant) + 150;
     if (gameInfo->extraTags) len += strlen(gameInfo->extraTags);
 
     buf = malloc(len);
@@ -206,8 +225,15 @@ PGNTags (GameInfo *gameInfo)
 	p += sprintf(p, "[BlackElo \"%d\"]\n", gameInfo->blackRating);
     if (gameInfo->timeControl)
 	p += sprintf(p, "[TimeControl \"%s\"]\n", gameInfo->timeControl);
-    if (gameInfo->variant != VariantNormal)
-        p += sprintf(p, "[Variant \"%s\"]\n", VariantName(gameInfo->variant));
+    if (gameInfo->variant != VariantNormal) {
+	char c = *engineVariant;
+	p += sprintf(p, "[Variant \"%s\"]\n", VariantName(gameInfo->variant));
+	if(c) {
+	    *engineVariant = NULLCHAR;
+	    p += sprintf(p, "[VariantFamily \"%s\"]\n", VariantName(gameInfo->variant));
+            *engineVariant = c;
+        }
+    }
     if (gameInfo->extraTags)
 	strcpy(p, gameInfo->extraTags);
     return buf;

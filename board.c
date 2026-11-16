@@ -5,7 +5,8 @@
  * Massachusetts.
  *
  * Enhancements Copyright 1992-2001, 2002, 2003, 2004, 2005, 2006,
- * 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * The following terms apply to Digital Equipment Corporation's copyright
  * interest in XBoard:
@@ -149,42 +150,31 @@ int pm1X = -1, pm1Y = -1, pm2X = -1, pm2Y = -1;
 
 void
 SetHighlights (int fromX, int fromY, int toX, int toY)
-{
-    int arrow = hi2X >= 0 && hi1Y >= 0 && IsDrawArrowEnabled();
+{   // [HGM] schedule old for erasure, and leave drawing new to DrawPosition
+    int change = 0;
 
-    if (hi1X != fromX || hi1Y != fromY) {
-	if (hi1X >= 0 && hi1Y >= 0) {
-	    drawHighlight(hi1X, hi1Y, 0);
+    if (hi1X >= 0 && hi1Y >= 0) {
+	if (hi1X != fromX || hi1Y != fromY) {
+	    damage[0][hi1Y][hi1X] |= 2;
+	    change |= 1;
 	}
-    } // [HGM] first erase both, then draw new!
-
-    if (hi2X != toX || hi2Y != toY) {
-	if (hi2X >= 0 && hi2Y >= 0) {
-	    drawHighlight(hi2X, hi2Y, 0);
-	}
+	change |= 4;
     }
 
-    if(arrow) // there currently is an arrow displayed
-	ArrowDamage(hi1X, hi1Y, hi2X, hi2Y); // mark which squares it damaged
+    if (hi2X >= 0 && hi2Y >= 0) {
+	if (hi2X != toX || hi2Y != toY) {
+	    damage[0][hi2Y][hi2X] |= 2;
+	    change |= 2;
+	}
+	change |= 8;
+    }
 
-    if (hi1X != fromX || hi1Y != fromY) {
-	if (fromX >= 0 && fromY >= 0) {
-	    drawHighlight(fromX, fromY, 1);
-	}
-    }
-    if (hi2X != toX || hi2Y != toY) {
-	if (toX >= 0 && toY >= 0) {
-	    drawHighlight(toX, toY, 1);
-	}
-    }
+    if(change > 12 && IsDrawArrowEnabled()) ArrowDamage(hi1X, hi1Y, hi2X, hi2Y);
 
     hi1X = fromX;
     hi1Y = fromY;
     hi2X = toX;
     hi2Y = toY;
-
-    if(arrow || toX >= 0 && fromY >= 0 && IsDrawArrowEnabled())
-	DrawPosition(FALSE, NULL); // repair any arrow damage, or draw a new one
 }
 
 void
@@ -199,18 +189,12 @@ SetPremoveHighlights (int fromX, int fromY, int toX, int toY)
 {
     if (pm1X != fromX || pm1Y != fromY) {
 	if (pm1X >= 0 && pm1Y >= 0) {
-	    drawHighlight(pm1X, pm1Y, 0);
-	}
-	if (fromX >= 0 && fromY >= 0) {
-	    drawHighlight(fromX, fromY, 2);
+	    damage[0][pm1Y][pm1X] |= 2;
 	}
     }
     if (pm2X != toX || pm2Y != toY) {
 	if (pm2X >= 0 && pm2Y >= 0) {
-	    drawHighlight(pm2X, pm2Y, 0);
-	}
-	if (toX >= 0 && toY >= 0) {
-	    drawHighlight(toX, toY, 2);
+	    damage[0][pm2Y][pm2X] |= 2;
 	}
     }
     pm1X = fromX;
@@ -251,7 +235,7 @@ SquareColor (int row, int column)
 {
     int square_color;
 
-    if (gameInfo.variant == VariantXiangqi) {
+    if (gameInfo.variant == VariantXiangqi || gameInfo.variant == VariantJanggi) {
         if (column >= 3 && column <= 5 && row >= 0 && row <= 2) {
             square_color = 1;
         } else if (column >= 3 && column <= 5 && row >= 7 && row <= 9) {
@@ -599,22 +583,31 @@ void
 AnimateMove (Board board, int fromX, int fromY, int toX, int toY)
 {
   ChessSquare piece;
-  int hop;
+  int hop, x = toX, y = toY, x2 = kill2X;
   Pnt      start, finish, mid;
   Pnt      frames[kFactor * 2 + 1];
   int	      nFrames, startColor, endColor;
+
+  if(killX >= 0 && IS_LION(board[fromY][fromX])) Roar();
 
   /* Are we animating? */
   if (!appData.animate || appData.blindfold)
     return;
 
   if(board[toY][toX] == WhiteRook && board[fromY][fromX] == WhiteKing ||
-     board[toY][toX] == BlackRook && board[fromY][fromX] == BlackKing)
+     board[toY][toX] == BlackRook && board[fromY][fromX] == BlackKing ||
+     board[toY][toX] == WhiteKing && board[fromY][fromX] == WhiteRook || // [HGM] seirawan
+     board[toY][toX] == BlackKing && board[fromY][fromX] == BlackRook)
 	return; // [HGM] FRC: no animtion of FRC castlings, as to-square is not true to-square
 
   if (fromY < 0 || fromX < 0 || toX < 0 || toY < 0) return;
   piece = board[fromY][fromX];
   if (piece >= EmptySquare) return;
+
+  if(x2 >= 0) toX = kill2X, toY = kill2Y; else
+  if(killX >= 0 && gameInfo.variant != VariantDuck) toX = killX, toY = killY; // [HGM] lion: first to kill square
+
+again:
 
 #if DONT_HOP
   hop = FALSE;
@@ -648,11 +641,14 @@ AnimateMove (Board board, int fromX, int fromY, int toX, int toY)
   if(Explode(board, fromX, fromY, toX, toY)) { // mark as damaged
     int i,j;
     for(i=0; i<BOARD_WIDTH; i++) for(j=0; j<BOARD_HEIGHT; j++)
-      if((i-toX)*(i-toX) + (j-toY)*(j-toY) < 6) damage[0][j][i] |=  1 + ((i-toX ^ j-toY) & 1);
+      if((i-toX)*(i-toX) + (j-toY)*(j-toY) < 6) damage[0][j][i] |= 2;
   }
 
-  /* Be sure end square is redrawn */
-  damage[0][toY][toX] |= True;
+  /* Be sure end square is redrawn, with piece in it */
+  damage[0][toY][toX] |= 4;
+
+  if(toX == x2 && toY == kill2Y) { fromX = toX; fromY = toY; toX = killX; toY = killY; x2 = -1; goto again; } // second leg
+  if(toX != x || toY != y) { fromX = toX; fromY = toY; toX = x; toY = y; goto again; } // second leg
 }
 
 void
@@ -660,6 +656,7 @@ ChangeDragPiece (ChessSquare piece)
 {
   anims[Player].dragPiece = piece;
   SetDragPiece(Player, piece);
+  damage[0][fromY][fromX] = True;
 }
 
 void
@@ -752,7 +749,7 @@ DragPieceBegin (int x, int y, Boolean instantly)
 	/* Mark this square as needing to be redrawn. Note that
 	   we don't remove the piece though, since logically (ie
 	   as seen by opponent) the move hasn't been made yet. */
-	damage[0][boardY][boardX] = True;
+	damage[0][boardY][boardX] |= True;
     } else {
 	anims[Player].dragActive = False;
     }
@@ -773,7 +770,7 @@ DrawDragPiece ()
   DrawOneSquare(anims[Player].startSquare.x, anims[Player].startSquare.y,
 		EmptySquare, anims[Player].startColor, 0, NULL, NULL, 0);
   AnimationFrame(Player, &anims[Player].prevFrame, anims[Player].dragPiece);
-  damage[0][anims[Player].startBoardY][anims[Player].startBoardX] = TRUE;
+  damage[0][anims[Player].startBoardY][anims[Player].startBoardX] |= TRUE;
 }
 
 static void
@@ -817,15 +814,18 @@ DrawSquare (int row, int column, ChessSquare piece, int do_flash)
 	snprintf(tString, 3, "%d", piece);
 	align = 4; // holdings count in upper-left corner
     }
+    if(piece == DarkSquare) square_color = (gameInfo.variant == VariantDuck ? 3 : 2);
     if(square_color == 2 || appData.blindfold) piece = EmptySquare;
 
     if (do_flash && piece != EmptySquare && appData.flashCount > 0) {
 	for (i=0; i<appData.flashCount; ++i) {
 	    DrawOneSquare(x, y, piece, square_color, 0, tString, bString, 0);
 	    GraphExpose(currBoard, x, y, squareSize, squareSize);
+	    DoEvents(); // requires event processing to actually update screen :-(
 	    FlashDelay(flash_delay);
 	    DrawOneSquare(x, y, EmptySquare, square_color, 0, tString, bString, 0);
 	    GraphExpose(currBoard, x, y, squareSize, squareSize);
+	    DoEvents();
 	    FlashDelay(flash_delay);
 	}
     }
@@ -898,15 +898,33 @@ check_castle_draw (Board newb, Board oldb, int *rrow, int *rcol)
 }
 
 void
-DrawPosition (int repaint, Board board)
+SquareExpose(int i, int j, int d)
+{
+    int x, y;
+    if (flipView) {
+	x = lineGap + ((BOARD_WIDTH-1)-j) *
+	  (squareSize + lineGap);
+	y = lineGap + i * (squareSize + lineGap);
+    } else {
+	x = lineGap + j * (squareSize + lineGap);
+	y = lineGap + ((BOARD_HEIGHT-1)-i) *
+	  (squareSize + lineGap);
+    }
+    GraphExpose(currBoard, x-d, y-d, squareSize+2*d, squareSize+2*d);
+}
+
+void
+DrawPositionX (int repaint, Board board)
 {
     int i, j, do_flash, exposeAll = False;
     static int lastFlipView = 0;
     static int lastBoardValid[2] = {0, 0};
     static Board lastBoard[2];
-    static char lastMarker[BOARD_RANKS][BOARD_FILES];
-    int rrow, rcol;
+    static char lastMarker[BOARD_RANKS][BOARD_FILES], messedUp;
+    int rrow = -1, rcol = -1;
     int nr = twoBoards*partnerUp;
+
+    repaint |= messedUp;
 
     if(DrawSeekGraph()) return; // [HGM] seekgraph: suppress any drawing if seek graph up
 
@@ -927,9 +945,6 @@ DrawPosition (int repaint, Board board)
 
     if (!repaint && lastBoardValid[nr] && (nr == 1 || lastFlipView == flipView)) {
 
-//	if ( lineGap && IsDrawArrowEnabled())
-//	    DrawGrid();
-
 	/* If too much changes (begin observing new game, etc.), don't
 	   do flashing */
 	do_flash = too_many_diffs(board, lastBoard[nr]) ? 0 : 1;
@@ -937,33 +952,42 @@ DrawPosition (int repaint, Board board)
 	/* Special check for castling so we don't flash both the king
 	   and the rook (just flash the king). */
 	if (do_flash) {
-	    if (check_castle_draw(board, lastBoard[nr], &rrow, &rcol)) {
+	    if(check_castle_draw(board, lastBoard[nr], &rrow, &rcol)) {
 		/* Mark rook for drawing with NO flashing. */
 		damage[nr][rrow][rcol] |= 1;
 	    }
 	}
 
-	/* First pass -- Draw (newly) empty squares and repair damage.
+	/* First pass -- Erase arrow and grid highlights, but keep square content unchanged. Except for new markers. */
+	for (i = 0; i < BOARD_HEIGHT; i++)
+	  for (j = 0; j < BOARD_WIDTH; j++)
+	    if (damage[nr][i][j] ||  !nr && marker[i][j] != lastMarker[i][j]) {
+		DrawSquare(i, j, board[i][j], 0);
+		if(lineGap && damage[nr][i][j] & 2) {
+		    drawHighlight(j, i, 0);
+		    SquareExpose(i, j, lineGap);
+		} else SquareExpose(i, j, 0);
+		damage[nr][i][j] = 0;
+	    }
+
+	/* Second pass -- Draw (newly) empty squares
 	   This prevents you from having a piece show up twice while it
 	   is flashing on its new square */
 	for (i = 0; i < BOARD_HEIGHT; i++)
 	  for (j = 0; j < BOARD_WIDTH; j++)
-	    if (((board[i][j] != lastBoard[nr][i][j] || !nr && marker[i][j] != lastMarker[i][j]) && board[i][j] == EmptySquare)
-		|| damage[nr][i][j]) {
+	    if (board[i][j] != lastBoard[nr][i][j] && board[i][j] == EmptySquare) {
 		DrawSquare(i, j, board[i][j], 0);
-		if(damage[nr][i][j] & 2) {
-		    drawHighlight(j, i, 0);   // repair arrow damage
-		    if(lineGap) damage[nr][i][j] = False; // this flushed the square as well
-		} else damage[nr][i][j] = 1;  // mark for expose
+		SquareExpose(i, j, 0);
 	    }
 
-	/* Second pass -- Draw piece(s) in new position and flash them */
+	/* Third pass -- Draw piece(s) in new position and flash them */
 	for (i = 0; i < BOARD_HEIGHT; i++)
 	  for (j = 0; j < BOARD_WIDTH; j++)
-	    if (board[i][j] != lastBoard[nr][i][j] || !nr && marker[i][j] != lastMarker[i][j]) {
-		DrawSquare(i, j, board[i][j], do_flash);
+	    if (board[i][j] != lastBoard[nr][i][j]) {
+		DrawSquare(i, j, board[i][j], do_flash && (i != rrow || j != rcol));
 		damage[nr][i][j] = 1; // mark for expose
 	    }
+
     } else {
 	if (lineGap > 0)
 	  DrawGrid();
@@ -988,19 +1012,19 @@ DrawPosition (int repaint, Board board)
     /* Draw highlights */
     if (pm1X >= 0 && pm1Y >= 0) {
       drawHighlight(pm1X, pm1Y, 2);
-      if(lineGap) damage[nr][pm1Y][pm1X] = False;
+      if(lineGap) damage[nr][pm1Y][pm1X] |= 2;
     }
     if (pm2X >= 0 && pm2Y >= 0) {
       drawHighlight(pm2X, pm2Y, 2);
-      if(lineGap) damage[nr][pm2Y][pm2X] = False;
+      if(lineGap) damage[nr][pm2Y][pm2X] |= 2;
     }
     if (hi1X >= 0 && hi1Y >= 0) {
       drawHighlight(hi1X, hi1Y, 1);
-      if(lineGap) damage[nr][hi1Y][hi1X] = False;
+      if(lineGap) damage[nr][hi1Y][hi1X] |= 2;
     }
     if (hi2X >= 0 && hi2Y >= 0) {
       drawHighlight(hi2X, hi2Y, 1);
-      if(lineGap) damage[nr][hi2Y][hi2X] = False;
+      if(lineGap) damage[nr][hi2Y][hi2X] |= 2;
     }
     DrawArrowHighlight(hi1X, hi1Y, hi2X, hi2Y);
   }
@@ -1015,26 +1039,36 @@ DrawPosition (int repaint, Board board)
 	for (i = 0; i < BOARD_HEIGHT; i++)
 	    for (j = 0; j < BOARD_WIDTH; j++)
 		if(damage[nr][i][j]) {
-		    int x, y;
-		    if (flipView) {
-			x = lineGap + ((BOARD_WIDTH-1)-j) *
-			  (squareSize + lineGap);
-			y = lineGap + i * (squareSize + lineGap);
-		    } else {
-			x = lineGap + j * (squareSize + lineGap);
-			y = lineGap + ((BOARD_HEIGHT-1)-i) *
-			  (squareSize + lineGap);
-		    }
 		    if(damage[nr][i][j] & 2) // damage by old or new arrow
-			GraphExpose(currBoard, x - lineGap, y - lineGap, squareSize + 2*lineGap, squareSize  + 2*lineGap);
+			SquareExpose(i, j, lineGap);
 		    else
-			GraphExpose(currBoard, x, y, squareSize, squareSize);
-		    damage[nr][i][j] &= 2; // remember damage by newly drawn error in '2' bit, to schedule it for erasure next draw
+			SquareExpose(i, j, 0);
+		    if(nr == 0) damage[nr][i][j] = 0; // on auxiliary board we retain arrow damage
 		}
     }
 
     FlashDelay(0); // this flushes drawing queue;
     if(nr) SwitchWindow(1);
+    else {
+	TimeMark now;
+	GetTimeMark(&now);
+	if(repaint && SubtractTimeMarks(&now, &programStartTime) < 1000) {
+	    char *p = appData.message, *q;
+	    i = 0;
+	    while(*p) {
+		q = strchr(p, '\n');
+		if(q) *q = NULLCHAR;
+		if(!strstr(appData.suppress, p)) {
+		    if(i == 0) DrawSeekBackground(2*squareSize, 3*squareSize, 6.5*squareSize, 5*squareSize);
+		    DrawText(p, 2*squareSize + 5, (int) ((3 + 0.3*i++)*squareSize) + 5, 2);
+		}
+		if(q) *q++ = '\n'; else q = "";
+		p = q;
+	    }
+	    GraphExpose(currBoard, 2*squareSize, 3*squareSize, 4*squareSize, 2*squareSize);
+	    messedUp = TRUE;
+	} else messedUp = FALSE;
+    }
 }
 
 /* [AS] Arrow highlighting support */
@@ -1175,13 +1209,20 @@ DrawArrowBetweenPoints (int s_x, int s_y, int d_x, int d_y)
 static void
 ArrowDamage (int s_col, int s_row, int d_col, int d_row)
 {
-    int hor, vert, i, n = partnerUp * twoBoards;
-    hor = 64*s_col + 32; vert = 64*s_row + 32;
+    int hor, vert, i, n = partnerUp * twoBoards, delta = abs(d_row - s_row);
+
+    if( 2*(d_row - s_row) > abs(d_col - s_col) ) d_row = 4*d_row + 1; else 
+    if( 2*(s_row - d_row) > abs(d_col - s_col) ) d_row = 4*d_row + 3; else d_row = 4*d_row + 2;
+    if( 2*(d_col - s_col) > delta ) d_col = 4*d_col + 1; else 
+    if( 2*(s_col - d_col) > delta ) d_col = 4*d_col + 3; else d_col = 4*d_col + 2;
+    s_row = 4*s_row + 2; s_col = 4*s_col + 2;
+
+    hor = 64*s_col; vert = 64*s_row;
     for(i=0; i<= 64; i++) {
-            damage[n][vert+6>>6][hor+6>>6] |= 2;
-            damage[n][vert-6>>6][hor+6>>6] |= 2;
-            damage[n][vert+6>>6][hor-6>>6] |= 2;
-            damage[n][vert-6>>6][hor-6>>6] |= 2;
+            damage[n][vert+30>>8][hor+30>>8] |= 2;
+            damage[n][vert-30>>8][hor+30>>8] |= 2;
+            damage[n][vert+30>>8][hor-30>>8] |= 2;
+            damage[n][vert-30>>8][hor-30>>8] |= 2;
             hor += d_col - s_col; vert += d_row - s_row;
     }
 }
@@ -1190,7 +1231,7 @@ ArrowDamage (int s_col, int s_row, int d_col, int d_row)
 static void
 DrawArrowBetweenSquares (int s_col, int s_row, int d_col, int d_row)
 {
-    int s_x, s_y, d_x, d_y;
+    int s_x, s_y, d_x, d_y, delta_y;
 
     if( s_col == d_col && s_row == d_row ) {
         return;
@@ -1199,21 +1240,22 @@ DrawArrowBetweenSquares (int s_col, int s_row, int d_col, int d_row)
     /* Get source and destination points */
     SquareToPos( s_row, s_col, &s_x, &s_y);
     SquareToPos( d_row, d_col, &d_x, &d_y);
+    delta_y = abs(d_y - s_y);
 
-    if( d_y > s_y ) {
+    if( d_y > s_y && 2*(d_y - s_y) > abs(d_x - s_x)) {
         d_y += squareSize / 2 - squareSize / 4; // [HGM] round towards same centers on all sides!
     }
-    else if( d_y < s_y ) {
+    else if( d_y < s_y && 2*(s_y - d_y) > abs(d_x - s_x)) {
         d_y += squareSize / 2 + squareSize / 4;
     }
     else {
         d_y += squareSize / 2;
     }
 
-    if( d_x > s_x ) {
+    if( d_x > s_x && 2*(d_x - s_x) > delta_y) {
         d_x += squareSize / 2 - squareSize / 4;
     }
-    else if( d_x < s_x ) {
+    else if( d_x < s_x && 2*(s_x - d_x) > delta_y) {
         d_x += squareSize / 2 + squareSize / 4;
     }
     else {

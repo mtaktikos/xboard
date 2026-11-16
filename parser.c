@@ -1,7 +1,7 @@
 /*
  * parser.c --
  *
- * Copyright 2011, 2012, 2013 Free Software Foundation, Inc.
+ * Copyright 2011, 2012, 2013, 2014, 2015, 2016 Free Software Foundation, Inc.
  * ------------------------------------------------------------------------
  *
  * GNU XBoard is free software: you can redistribute it and/or modify
@@ -22,6 +22,7 @@
 
 #include "config.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
 #include "common.h"
@@ -51,10 +52,240 @@ static char fromString = 0, lastChar = '\n';
 #define ALPHABETIC 2
 #define BADNUMBER (-2000000000)
 
+#define XCO    0
+#define YCO   53
+#define PIECE 94
+#define MISC 155
+#define JIS  200
+
+unsigned char kanjiTab[] = {
+  '1', 0357, 0274, 0221, // kanji notation for arabic digits
+  '2', 0357, 0274, 0222,
+  '3', 0357, 0274, 0223,
+  '4', 0357, 0274, 0224,
+  '5', 0357, 0274, 0225,
+  '6', 0357, 0274, 0226,
+  '7', 0357, 0274, 0227,
+  '8', 0357, 0274, 0230,
+  '9', 0357, 0274, 0231,
+  'x', 0345, 0220, 0214,
+  's', 0345, 0205, 0210, // sente
+  'g', 0345, 0276, 0214, // gote
+  '-', 0346, 0212, 0225, // resign
+   0,
+  'a', 0344, 0270, 0200, // in reality these are numbers in Japanese a=1, b=2 etc.
+  'b', 0344, 0272, 0214,
+  'c', 0344, 0270, 0211,
+  'd', 0345, 0233, 0233,
+  'e', 0344, 0272, 0224,
+  'f', 0345, 0205, 0255,
+  'g', 0344, 0270, 0203,
+  'h', 0345, 0205, 0253,
+  'i', 0344, 0271, 0235,
+  ' ', 0343, 0200, 0200,
+   0,
+  'K', 0347, 0216, 0211, // piece names
+  'K', 0347, 0216, 0213,
+  'G', 0351, 0207, 0221,
+  'S', 0351, 0212, 0200,
+  'R', 0351, 0243, 0233,
+  'B', 0350, 0247, 0222,
+  'N', 0346, 0241, 0202,
+  'L', 0351, 0246, 0231,
+  'P', 0346, 0255, 0251,
+  'r', 0351, 0276, 0215,
+  'b', 0351, 0246, 0254,
+  'p', 0343, 0201, 0250,
+  'r', 0347, 0253, 0234,
+  '+', 0346, 0210, 0220,
+  'G', 0, 0, 0,
+   0,
+  '+', 0346, 0210, 0220, // helper
+  '@', 0346, 0211, 0223,
+  'p', 0346, 0211, 0213, // player
+  ':', 0357, 0274, 0232,
+  '-', 0344, 0272, 0206,
+  'f', 0344, 0270, 0212,
+  's', 0345, 0257, 0204,
+  'b', 0345, 0274, 0225,
+  'r', 0345, 0267, 0246,
+  'l', 0345, 0217, 0263,
+  'v', 0347, 0233, 0264,
+   0,
+   // shift-JIS
+  '1', 0202, 0120, 0,
+  '2', 0202, 0121, 0,
+  '3', 0202, 0122, 0,
+  '4', 0202, 0123, 0,
+  '5', 0202, 0124, 0,
+  '6', 0202, 0125, 0,
+  '7', 0202, 0126, 0,
+  '8', 0202, 0127, 0,
+  '9', 0202, 0130, 0,
+  'x', 0223, 0257, 0,
+  's', 0220, 0346, 0,
+  'g', 0214, 0343, 0,
+  '-', 0223, 0212, 0,
+   0,
+  'a', 0210, 0352, 0, 
+  'b', 0223, 0361, 0, 
+  'c', 0216, 0117, 0, 
+  'd', 0216, 0154, 0, 
+  'e', 0214, 0334, 0, 
+  'f', 0230, 0132, 0, 
+  'g', 0216, 0265, 0, 
+  'h', 0224, 0252, 0, 
+  'i', 0213, 0343, 0, 
+  ' ', 0201, 0100, 0, 
+   0,
+  'K', 0213, 0312, 0, 
+  'K', 0213, 0312, 0, 
+  'G', 0213, 0340, 0, 
+  'S', 0213, 0342, 0, 
+  'R', 0224, 0362, 0, 
+  'B', 0212, 0160, 0,
+  'N', 0214, 0152, 0, 
+  'L', 0215, 0201, 0, 
+  'P', 0225, 0340, 0, 
+  'r', 0227, 0264, 0, 
+  'b', 0224, 0156, 0, 
+  'p', 0202, 0306, 0, 
+  'r', 0227, 0263, 0, 
+  '+', 0220, 0254, 0, 
+  'G', 0, 0, 0, 
+   0,
+  '+', 0220, 0254, 0, 
+  '@', 0221, 0305, 0, 
+//  'p', 0214, 0343, 0,
+  'p', 0216, 0350, 0,
+  ':', 0201, 0106, 0,
+  '-', 0227, 0271, 0,
+  'f', 0217, 0343, 0,
+  's', 0212, 0361, 0,
+  'b', 0210, 0370, 0,
+  'r', 0215, 0266, 0,
+  'l', 0211, 0105, 0,
+  'v', 0222, 0274, 0,
+   0,
+     
+};
+
+int NextUnit P((char **p));
+
+int kifu = 0, xqUBB = 0;
+
+char
+GetKanji (char **p, int start)
+{
+    unsigned char *q = *(unsigned char **) p;
+    int i;
+
+    if((*q & 0x80) == 0) return 0; // plain ASCII, refuse to parse
+    if((**p & 0xC0) == 0x80) { // this is an illegal starting code in utf-8, so assume shift-JIS
+	for(i=start+JIS; kanjiTab[i]; i+=4) {
+	    if(q[0] == kanjiTab[i+1] && q[1] == kanjiTab[i+2]) {
+		(*p) += 2; kifu = 0x80;
+		return kanjiTab[i];
+	    }
+	}
+	(*p) += (kifu ? 2 : 1); // assume this is an unrecognized kanji when reading kif files
+	return 0;
+    }
+
+    for(i=start; kanjiTab[i]; i+=4) {
+	if(q[0] == kanjiTab[i+1] && q[1] == kanjiTab[i+2] && q[2] == kanjiTab[i+3]) {
+	    (*p) += 3; kifu = 0x80;
+	    return kanjiTab[i];
+	}
+    }
+
+    if((q[0] & 0xE0) == 0xC0 && (q[1] & 0xC0) == 0x80) (*p) += 2; else // for now skip unrecognized utf-8 characters
+    if((q[0] & 0xF0) == 0xE0 && (q[1] & 0xC0) == 0x80 && (q[2] & 0xC0) == 0x80) (*p) += 3; else
+    if((q[0] & 0xF8) == 0xF0 && (q[1] & 0xC0) == 0x80 && (q[2] & 0xC0) == 0x80 && (q[3] & 0xC0) == 0x80) (*p) += 4;
+    else if(**p & 0x80) return -1; // not valid utf-8
+
+    return 0; // unrecognized but valid kanji (skipped), or plain ASCII
+}
+
+int
+KifuMove (char **p)
+{
+    static char buf[MSG_SIZ];
+    char *ptr = buf+3, *q, k;
+    int wom = quickFlag ? quickFlag&1 : WhiteOnMove(yyboardindex);
+    k = GetKanji(p, XCO);
+    if(k < 0) { (*p)++; return Nothing; } // must try shift-JIS here
+    if(k >= '1' && k <= '9') {
+	buf[0] = k; buf[1] = GetKanji(p, YCO); // to-square coords
+    } else if(k == 'x') {
+	if(GetKanji(p, YCO) != ' ') (*p) -= 3; // skip spacer kanji after recapture 
+    } else if((k == 's' || k == 'g') && GetKanji(p, MISC) == 'p' && GetKanji(p, MISC) == ':') { // player name
+	snprintf(yytext, MSG_SIZ, "[%s \"", k == 's' ? "White" : "Black"); // construct PGN tag
+	for(q=yytext+8; **p && **p != '\n' && **p != '\r' && q < yytext + MSG_SIZ; ) *q++ = *(*p)++;
+	strcpy(q, "\"]\n"); parseStart = yytext; lastChar = '\n';
+	return PGNTag;
+    } else if(k == '-' && GetKanji(p, MISC) == '-') { // resign
+	int res;
+	parseStart = yytext;
+	if(wom)
+	     res = BlackWins, strcpy(yytext, "{sente resigns} 0-1"); 
+	else res = WhiteWins, strcpy(yytext, "{gote resigns} 1-0");
+	return res;
+    } else {
+	while(**p && **p != '\n') (*p)++; // unrecognized Japanese kanji: skip to end of line
+	return Nothing;
+    }
+    buf[3] = GetKanji(p, PIECE); // piece ID
+    if(buf[3] == '+') buf[2] = '+', buf[3] = GetKanji(p, PIECE); // +N, +L, +S
+    k = GetKanji(p, MISC);
+    if(k == '@') { // drop move
+	buf[4] = '@', buf[5] = buf[0], buf[6] = buf[1]; buf[7] = NULLCHAR;
+	if(appData.debugMode) fprintf(debugFP, "kifu drop %s\n", ptr);
+	return NextUnit(&ptr);
+    }
+
+    kifu = 0x80;
+    do { // read disambiguation (and promotion) kanji
+	switch(k) {
+	  case '+': kifu |= 1; break;
+	  case 'f': kifu |= 2; break;
+	  case 'b': kifu |= 4; break;
+	  case 's': kifu |= 8; break;
+	  case 'l': kifu |= 0x10; break;
+	  case 'r': kifu |= 0x20; break;
+	  case 'v': kifu |= 0x40; break;
+	}
+    } while(k = GetKanji(p, MISC));
+
+    if(**p == '(' && (*p)[3] == ')') { // kif disambiguation
+	buf[4] = (*p)[1]; buf[5] = (*p)[2] + 'a' - '1'; buf[6] = buf[0]; buf[7] = buf[1]; buf[8] = (kifu & 1)*'+'; buf[9] = NULLCHAR;
+	(*p) += 4; ptr++; // strip off piece name if we know full from-square
+	if(appData.debugMode) fprintf(debugFP, "kifu move %s\n", ptr);
+	return NextUnit(&ptr);
+    } else { // kif2
+	char *q = buf+4;
+	if(islower(buf[3])) // kludge: kanji for promoted types translate as lower case
+	    buf[3] += 'A' - 'a', buf[2] = '+', ptr--;        // so prefix with '+'
+	if(kifu * ~1) { // disambiguation was given, and thus is probably needed
+	    if(buf[3] != 'B' && buf[3] != 'R') {                // stepper, so distance must be <= 1 (N or L never need vertical disambiguation!)
+		if(kifu & 0x10) *q++ = buf[0] - (wom ? -1 : 1); // translate left/right/straight to PSN file disambiguators
+		if(kifu & 0x20) *q++ = buf[0] + (wom ? -1 : 1);
+		if(kifu & 0x40) *q++ = buf[0], kifu |= 2;       // kludge: 'straight' only needs disambiguation if forward!
+		if(kifu & 2) *q++ = buf[1] + (wom ? -1 : 1);    // translate forward/backward/sideway to PSN rank disambiguators
+		if(kifu & 4) *q++ = buf[1] - (wom ? -1 : 1);
+		if(kifu & 8) *q++ = buf[1];
+	    } // for B, R, +B and +R it gets ugly, as we cannot deduce the distance, and the Disambiguate callback has to directly look at 'kifu'
+	}
+	*q++ = buf[0]; *q++ = buf[1]; *q++ = (kifu & 1)*'+'; *q = NULLCHAR;
+	if(appData.debugMode) fprintf(debugFP, "kif2 move %s\n", ptr);
+	return NextUnit(&ptr);
+    }
+}
+
 int
 ReadLine ()
 {   // Read one line from the input file, and append to the buffer
-    char c, *start = inPtr;
+    int c; char *start = inPtr;
     if(fromString) return 0; // parsing string, so the end is a hard end
     if(!inputFile) return 0;
     while((c = fgetc(inputFile)) != EOF) {
@@ -87,7 +318,7 @@ SkipWhite (char **p)
     return *p != start;
 }
 
-inline int
+static inline int
 Match (char *pattern, char **ptr)
 {
     char *p = pattern, *s = *ptr;
@@ -99,7 +330,7 @@ Match (char *pattern, char **ptr)
     return 0; // no match, no ptr update
 }
 
-inline int
+static inline int
 Word (char *pattern, char **p)
 {
     if(Match(pattern, p)) return 1;
@@ -150,12 +381,13 @@ char
 PromoSuffix (char **p)
 {
     char *start = *p;
+    if(**p == ' ') return NULLCHAR; // common case, test explicitly for speed
     if(**p == 'e' && (Match("ep", p) || Match("e.p.", p))) { *p = start; return NULLCHAR; } // non-compliant e.p. suffix is no promoChar!
-    if(**p == '+' && gameInfo.variant == VariantShogi) { (*p)++; return '+'; }
+    if(**p == '+' && IS_SHOGI(gameInfo.variant)) { (*p)++; return '+'; }
     if(**p == '=' || (gameInfo.variant == VariantSChess) && **p == '/') (*p)++; // optional = (or / for Seirawan gating)
     if(**p == '(' && (*p)[2] == ')' && isalpha( (*p)[1] )) { (*p) += 3; return ToLower((*p)[-2]); }
-    if(isalpha(**p)) return ToLower(*(*p)++);
-    if(*p != start) return '='; // must be the optional =
+    if(isalpha(**p) && **p != 'x') return ToLower(*(*p)++); // reserve 'x' for multi-leg captures? 
+    if(*p != start) return **p == '+' ? *(*p)++ : '='; // must be the optional = (or =+)
     return NULLCHAR; // no suffix detected
 }
 
@@ -172,20 +404,35 @@ NextUnit (char **p)
 
 	if(**p == NULLCHAR) { // make sure there is something to parse
 	    if(fromString) return 0; // we are parsing string, so the end is really the end
-	    *p = inPtr = inputBuf;
+	    *p = inPtr = parseStart = inputBuf;
 	    if(!ReadLine()) return 0; // EOF
+	} else if(inPtr > inputBuf + PARSEBUFSIZE/2) { // buffer fills up with already parsed stuff
+	    char *q = *p, *r = inputBuf;
+	    while(*r++ = *q++);
+	    *p = inputBuf; inPtr = r - 1;
 	}
 	parseStart = oldp = *p; // remember where we begin
-
 
 	// ********* attempt to recognize a SAN move in the leading non-blank text *****
 	piece = separator = promoted = slash = n = 0;
 	for(i=0; i<4; i++) coord[i] = -1, type[i] = NOTHING;
+	if(**p & 0x80) return KifuMove(p); // non-ascii. Could be some kanj notation for Shogi or Xiangqi
 	if(**p == '+') (*p)++, promoted++;
 	if(**p >= 'a' && **p <= 'z' && (*p)[1]== '@') piece =*(*p)++ + 'A' - 'a'; else
 	if(**p >= 'A' && **p <= 'Z') {
+	     static char s[] = SUFFIXES;
+	     char *q;
 	     piece = *(*p)++; // Note we could test for 2-byte non-ascii names here
+	     if(q = strchr(s, **p)) (*p)++, piece += 64*(q - s + 1);
 	     if(**p == '/') slash = *(*p)++;
+	}
+
+	if(xqUBB) { // Xiangqi UBB movelist
+	    while(isdigit(**p)) {
+		type[n] = NUMERIC; coord[n++] = *(*p)++ - '0';
+		if(n >= 4) break;
+	    }
+	    if(n < 4) *p -= n, xqUBB = n = 0; else type[0] = type[2] = ALPHABETIC, coord[1] = 9 - coord[1], coord[3] = 9 - coord[3];
 	}
         while(n < 4) {
 	    if(**p >= 'a' && **p < 'x') coord[n] = *(*p)++ - 'a', type[n++] = ALPHABETIC;
@@ -236,7 +483,7 @@ NextUnit (char **p)
 	} else if(n == 1 && type[0] == NUMERIC && coord[0] > 1) { while(**p == '.') (*p)++; return Nothing; } // fast exit for move numbers
 	if(n == 4 && type[2] != type[3] && // we have a valid to-square (kludge: type[3] can be NOTHING on fxg type move)
 		     (piece || !promoted) && // promoted indicator only valid on named piece type
-	             (type[2] == ALPHABETIC || gameInfo.variant == VariantShogi)) { // in Shogi also allow alphabetic rank
+	             (type[2] == ALPHABETIC || IS_SHOGI(gameInfo.variant))) { // in Shogi also allow alphabetic rank
 	    DisambiguateClosure cl;
 	    int fromX, fromY, toX, toY;
 
@@ -255,14 +502,15 @@ NextUnit (char **p)
 	    else if(toY >= BOARD_HEIGHT || toY < 0)   return ImpossibleMove; // vert off-board to-square
 	    if(toX < BOARD_LEFT || toX >= BOARD_RGHT) return ImpossibleMove;
 	    if(piece) {
-		cl.pieceIn = CharToPiece(wom ? piece : ToLower(piece));
+		cl.pieceIn = CharToPiece(wom ? piece : piece + 'a' - 'A');
 		if(cl.pieceIn == EmptySquare) return ImpossibleMove; // non-existent piece
-		if(promoted) cl.pieceIn = (ChessSquare) (PROMOTED cl.pieceIn);
+		if(promoted) cl.pieceIn = (ChessSquare) (CHUPROMOTED(cl.pieceIn));
 	    } else cl.pieceIn = EmptySquare;
 	    if(separator == '@' || separator == '*') { // drop move. We only get here without from-square or promoted piece
 		fromY = DROP_RANK; fromX = cl.pieceIn;
 		currentMoveString[0] = piece;
 		currentMoveString[1] = '@';
+		currentMoveString[4] = NULLCHAR;
 		return LegalityTest(boards[yyboardindex], PosFlags(yyboardindex)&~F_MANDATORY_CAPTURE, fromY, fromX, toY, toX, NULLCHAR);
 	    }
 	    if(type[1] == NOTHING && type[0] != NOTHING) { // there is a disambiguator
@@ -270,18 +518,52 @@ NextUnit (char **p)
 	    }
 	    if(  type[1] != type[2] && // means fromY is of opposite type as ToX, or NOTHING
 		(type[0] == NOTHING || type[0] == type[2]) ) { // well formed
-
+		int suffix = 7;
 		fromX = (currentMoveString[0] = coord[0] + 'a') - AAA;
 		fromY = (currentMoveString[1] = coord[1] + '0') - ONE;
 		currentMoveString[4] = cl.promoCharIn = PromoSuffix(p);
 		currentMoveString[5] = NULLCHAR;
+		if(**p == ',' && gameInfo.variant == VariantDuck) { // Duck square follows
+		    currentMoveString[7] = currentMoveString[4];
+		    currentMoveString[4] = ';';
+		    currentMoveString[5] = *++*p; killX = **p - AAA;
+		    currentMoveString[6] = *++*p; killY = *(*p)++ - ONE;
+		    currentMoveString[8] = NULLCHAR;
+		}
+		if(**p == 'x' && !cl.promoCharIn) { // other leg follows
+		    char *q = *p;
+		    int x = *++*p, y;
+		    ++*p; y = Number(p);
+		    if(**p == '-' || **p == 'x') {  // 3-leg move!
+			currentMoveString[7] = (kill2X = toX) + AAA; // what we thought was to-square is in fact 1st kill-square of two
+			currentMoveString[8] = (kill2Y = toY) + ONE; // append it after 2nd kill-square
+			toX = x - AAA;       // kludge alert: this will become 2nd kill square
+			toY = y + '0' - ONE;
+			suffix += 2;
+		    } else *p = q; // 2-leg move, rewind to leave reading of 2nd leg to code below
+		}
+		if(!cl.promoCharIn && (**p == '-' || **p == 'x')) { // Lion-type multi-leg move
+		    currentMoveString[5] = (killX = toX) + AAA; // what we thought was to-square is in fact kill-square
+		    currentMoveString[6] = (killY = toY) + ONE; // append it as suffix behind long algebraic move
+		    currentMoveString[4] = ';';
+		    currentMoveString[suffix+1] = NULLCHAR;
+		    // read new to-square (VERY non-robust! Assumes correct (non-alpha-rank) syntax, and messes up on errors)
+		    toX = cl.ftIn = (currentMoveString[2] = *++*p) - AAA; ++*p;
+		    toY = cl.rtIn = (currentMoveString[3] = Number(p) + '0') - ONE;
+		    currentMoveString[suffix] = cl.promoCharIn = PromoSuffix(p);
+		}
 		if(type[0] != NOTHING && type[1] != NOTHING && type[3] != NOTHING) { // fully specified.
+		    ChessSquare realPiece = boards[yyboardindex][fromY][fromX];
 		    // Note that Disambiguate does not work for illegal moves, but flags them as impossible
 		    if(piece) { // check if correct piece indicated
-			ChessSquare realPiece = boards[yyboardindex][fromY][fromX];
-			if(PieceToChar(realPiece) == '~') realPiece = (ChessSquare) (DEMOTED realPiece);
+			if(PieceToChar(realPiece) == '~') realPiece = (ChessSquare) (DEMOTED(realPiece));
 			if(!(appData.icsActive && PieceToChar(realPiece) == '+') && // trust ICS if it moves promoted pieces
 			   piece && realPiece != cl.pieceIn) return ImpossibleMove;
+		    } else if(!separator && **p == '+') { // could be a protocol move, where bare '+' suffix means shogi-style promotion
+			if(PieceToChar(CHUPROMOTED(realPiece)) == '+') {    // seems to be that
+			   if(!autoProm[realPiece]) **p++; else             // for now ignore promosuffix on auto-promoting pieces' protocol moves
+			   currentMoveString[4] = cl.promoCharIn = *(*p)++; // append promochar after all
+			}
 		    }
 		    result = LegalityTest(boards[yyboardindex], PosFlags(yyboardindex), fromY, fromX, toY, toX, cl.promoCharIn);
 		    if (currentMoveString[4] == NULLCHAR) { // suppy missing mandatory promotion character
@@ -291,6 +573,12 @@ NextUnit (char **p)
 			  case VariantShatranj: currentMoveString[4] = PieceToChar(BlackFerz); break;
 			  case VariantGreat:    currentMoveString[4] = PieceToChar(BlackMan); break;
 			  case VariantShogi:    currentMoveString[4] = '+'; break;
+			  case VariantSChess:   if(!gameInfo.holdingsSize) { // missing auto-gating
+						    ChessSquare p = boards[yyboardindex][fromY^1][fromX];
+						    if(p == DarkSquare) p = boards[yyboardindex][fromY^1][toX<fromX?BOARD_LEFT:BOARD_RGHT-1];
+						    currentMoveString[4] = ToLower(PieceToChar(p));
+						    break;
+						}
 			  default:              currentMoveString[4] = PieceToChar(BlackQueen);
 			}
 		      } else if(result == WhiteNonPromotion  || result == BlackNonPromotion) {
@@ -317,9 +605,10 @@ NextUnit (char **p)
 		currentMoveString[0] = cl.ff + AAA;
 		currentMoveString[1] = cl.rf + ONE;
 		currentMoveString[3] = cl.rt + ONE;
+		if(killX < 0) // [HGM] lion: do not overwrite kill-square suffix
 		currentMoveString[4] = cl.promoChar;
 
-		if((cl.kind == WhiteCapturesEnPassant || cl.kind == BlackCapturesEnPassant) && (Match("ep", p) || Match("e.p.", p)));
+		if((cl.kind == WhiteCapturesEnPassant || cl.kind == BlackCapturesEnPassant) && !Match("ep", p)) Match("e.p.", p);
 
 		return (int) cl.kind;
 	    }
@@ -332,12 +621,19 @@ badMove:// we failed to find algebraic move
 
 	// ********* PGN tags ******************************************
 	if(**p == '[') {
-	    oldp = ++(*p);
+	    oldp = ++(*p); kifu = 0;
 	    if(Match("--", p)) { // "[--" could be start of position diagram
 		if(!Scan(']', p) && (*p)[-3] == '-' && (*p)[-2] == '-') return PositionDiagram;
 		*p = oldp;
 	    }
 	    SkipWhite(p);
+	    if(Match("DhtmlXQ", p)) { // Xiangqi UBB tags
+		int res = Nothing;
+		if(**p == ']') strcpy(parseStart = yytext, "[Variant \"xiangqi\"]"), res = PGNTag; else
+		if(Match("_movelist", p)) xqUBB = 1; else Scan(']', p);
+		Scan(']', p); // for non-movelist tags this skips to the closing tag (disarming any enclosed kanji)!
+		return res;
+	    } else if(Match("/DhtmlXQ", p)) { Scan(']', p); return Nothing; }
 	    if(isdigit(**p) || isalpha(**p)) {
 		do (*p)++; while(isdigit(**p) || isalpha(**p) || **p == '+' ||
 				**p == '-' || **p == '=' || **p == '_' || **p == '#');
@@ -361,19 +657,22 @@ badMove:// we failed to find algebraic move
 		    Match("OO", p) || Match("oo", p) || Match("00", p)) castlingType = 1;
 	    if(castlingType) { //code from old parser, collapsed for both castling types, and streamlined a bit
 		int rf, ff, rt, ft; ChessSquare king;
-		char promo=NULLCHAR;
+		char promo=NULLCHAR, gate = 0;
 
-		if(gameInfo.variant == VariantSChess) promo = PromoSuffix(p);
+		if(gameInfo.variant == VariantSChess) {
+		    promo = PromoSuffix(p);
+		    if(promo && **p >= 'a' && **p < AAA + BOARD_RGHT) gate = *(*p)++;
+		}
 
 		if (yyskipmoves) return (int) AmbiguousMove; /* not disambiguated */
 
 		if (wom) {
-		    rf = 0;
-		    rt = 0;
+		    rf = castlingRank[0];
+		    rt = castlingRank[0];
 		    king = WhiteKing;
 		} else {
-	            rf = BOARD_HEIGHT-1;
-        	    rt = BOARD_HEIGHT-1;
+	            rf = castlingRank[3];
+        	    rt = castlingRank[3];
 		    king = BlackKing;
 		}
 		ff = (BOARD_WIDTH-1)>>1; // this would be d-file
@@ -381,8 +680,12 @@ badMove:// we failed to find algebraic move
 		    /* ICS wild castling */
         	    ft = castlingType == 1 ? BOARD_LEFT+1 : (gameInfo.variant == VariantJanus ? BOARD_RGHT-2 : BOARD_RGHT-3);
 		} else {
+		    char *q;
         	    ff = BOARD_WIDTH>>1; // e-file
 	            ft = castlingType == 1 ? BOARD_RGHT-2 : BOARD_LEFT+2;
+		    if(pieceDesc[king] && (q = strchr(pieceDesc[king], 'O'))) { // redefined to non-default King stride
+			ft = (castlingType == 1 ? ff + atoi(q+1) : ff - atoi(q+1));
+		    }
 		}
 		if(PosFlags(0) & F_FRC_TYPE_CASTLING) {
 		    if (wom) {
@@ -395,13 +698,24 @@ badMove:// we failed to find algebraic move
 		    if (appData.debugMode) fprintf(debugFP, "Parser FRC (type=%d) %d %d\n", castlingType, ff, ft);
 		    if(ff == NoRights || ft == NoRights) return ImpossibleMove;
 		}
+		if(gate) { // gating disambiguator present
+		    if(gate != ff + AAA) {
+			int h = ft; ft = ff; ff = h; // reverse for gating at Rook square
+			if(gate != AAA + initialRights[castlingType+(wom?-1:2)]) return ImpossibleMove;
+		    }
+		}
 		sprintf(currentMoveString, "%c%c%c%c%c",ff+AAA,rf+ONE,ft+AAA,rt+ONE,promo);
 		if (appData.debugMode) fprintf(debugFP, "(%d-type) castling %d %d\n", castlingType, ff, ft);
+		if(**p == ',' && gameInfo.variant == VariantDuck) {
+		    killX = (*p)[1] - AAA; killY = (*p)[2] - ONE;
+		    sprintf(currentMoveString + 4, ";%c%c", (*p)[1], (*p)[2]);
+		    *p += 3;
+		}
 
 	        return (int) LegalityTest(boards[yyboardindex],
 			      PosFlags(yyboardindex)&~F_MANDATORY_CAPTURE, // [HGM] losers: e.p.!
 			      rf, ff, rt, ft, promo);
-	    }
+	    } else if(Match("01", p)) return Nothing; // prevent this from being mistaken for move number 1
 	}
 
 
@@ -426,6 +740,12 @@ badMove:// we failed to find algebraic move
 	    commentEnd = *p; if(i) return Comment; // return comment that runs to EOF immediately
 	}
         if(commentEnd) SkipWhite(p);
+	if(kifu && **p == '*') { // .kif comment
+	    char *q = yytext;
+	    while(**p && **p != '\n') { if(q < yytext + 10*MSG_SIZ-3) *q++ = **p; (*p)++; }
+	    parseStart = yytext; *yytext = '{'; strcpy(q, "}\n"); // wrap in braces
+	    return Comment;
+	}
 	if(Match("*", p)) result = GameUnfinished;
 	else if(**p == '0') {
 	    if( Match("0-1", p) || Match("0/1", p) || Match("0:1", p) ||
@@ -511,6 +831,7 @@ badMove:// we failed to find algebraic move
 	    *p = oldp; // we might need to re-match the skipped stuff
 	}
 
+	if(Match("---", p)) { while(**p == '-') (*p)++; return Nothing; } // prevent separators parsing as null move
 	if(Match("@@@@", p) || Match("--", p) || Match("Z0", p) || Match("pass", p) || Match("null", p)) {
 	    strncpy(currentMoveString, "@@@@", 5);
 	    return yyboardindex & F_WHITE_ON_MOVE ? WhiteDrop : BlackDrop;
@@ -572,6 +893,7 @@ yylex ()
 {   // this replaces the flex-generated parser
     int result = NextUnit(&parsePtr);
     char *p = parseStart, *q = yytext;
+    if(p == yytext) return result;   // kludge to allow kanji expansion
     while(p < parsePtr) *q++ = *p++; // copy the matched text to yytext[]
     *q = NULLCHAR;
     lastChar = q[-1];

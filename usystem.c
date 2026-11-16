@@ -5,7 +5,8 @@
  * Massachusetts.
  *
  * Enhancements Copyright 1992-2001, 2002, 2003, 2004, 2005, 2006,
- * 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * The following terms apply to Digital Equipment Corporation's copyright
  * interest in XBoard:
@@ -227,7 +228,7 @@ static int
 parse_cpair (ColorClass cc, char *str)
 {
     if ((textColors[(int)cc].fg=parse_color(str, 0)) == -2) {
-	fprintf(stderr, _("%s: can't parse foreground color in `%s'\n"),
+	fprintf(stderr, _("%s: can't parse foreground color in '%s'\n"),
 		programName, str);
 	return -1;
     }
@@ -263,22 +264,7 @@ ParseIcsTextColors ()
       }
     textColors[ColorNone].fg = textColors[ColorNone].bg = -1;
     textColors[ColorNone].attr = 0;
-}
-
-static Boolean noEcho;
-
-void
-EchoOn ()
-{
-    system("stty echo");
-    noEcho = False;
-}
-
-void
-EchoOff ()
-{
-    system("stty -echo");
-    noEcho = True;
+    SetTextColor(cnames, textColors[ColorNormal].fg - 30, textColors[ColorNormal].bg - 40, -2); // kludge to announce background color to front-end 
 }
 
 char *oldICSInteractionTitle;
@@ -292,7 +278,7 @@ ShutDownFrontEnd ()
     if (saveSettingsOnExit) SaveSettings(settingsFileName);
     unlink(gameCopyFilename);
     unlink(gamePasteFilename);
-    if(noEcho) EchoOn();
+    EchoOn();
 }
 
 void
@@ -306,6 +292,8 @@ Colorize (ColorClass cc, int continuation)
 {
     char buf[MSG_SIZ];
     int count, outCount, error;
+
+    SetTextColor(cnames, textColors[(int)cc].fg - 30, textColors[(int)cc].bg - 40, textColors[(int)cc].attr); // for GTK widget
 
     if (textColors[(int)cc].bg > 0) {
 	if (textColors[(int)cc].fg > 0) {
@@ -358,6 +346,9 @@ ExpandPathName (char *path)
     }
 
     if (*s == '~') {
+	if(s[1] == '~') { // use ~~ for XBoard's private data directory
+	  snprintf(d, 4*MSG_SIZ, "%s%s", dataDir, s+2);
+	} else
 	if (*(s+1) == '/') {
 	  safeStrCpy(d, getpwuid(getuid())->pw_dir, 4*MSG_SIZ );
 	  strcat(d, s+1);
@@ -422,7 +413,7 @@ HostName ()
 
 
 int
-StartChildProcess (char *cmdLine, char *dir, ProcRef *pr)
+StartChildProcess (char *cmdLine, char *dir, ProcRef *pr, int priority)
 {
     char *argv[64], *p;
     int i, pid;
@@ -471,7 +462,7 @@ StartChildProcess (char *cmdLine, char *dir, ProcRef *pr)
 	    exit(1);
 	}
 
-	nice(appData.niceEngines); // [HGM] nice: adjust priority of engine proc
+	nice(priority); // [HGM] nice: adjust priority of engine proc
 
         execvp(argv[0], argv);
 
@@ -494,9 +485,12 @@ StartChildProcess (char *cmdLine, char *dir, ProcRef *pr)
 }
 
 // [HGM] kill: implement the 'hard killing' of AS's Winboard_x
+static int pid;
+
 static RETSIGTYPE
 AlarmCallBack (int n)
 {
+    kill(pid, SIGKILL); // kill forcefully
     return;
 }
 
@@ -507,24 +501,45 @@ DestroyChildProcess (ProcRef pr, int signalType)
 
     if (cp->kind != CPReal) return;
     cp->kind = CPNone;
-    if (signalType == 10) { // [HGM] kill: if it does not terminate in 3 sec, kill
-	signal(SIGALRM, AlarmCallBack);
-	alarm(3);
-	if(wait((int *) 0) == -1) { // process does not terminate on its own accord
-	    kill(cp->pid, SIGKILL); // kill it forcefully
-	    wait((int *) 0);        // and wait again
-	}
-    } else {
-	if (signalType) {
-	    kill(cp->pid, signalType == 9 ? SIGKILL : SIGTERM); // [HGM] kill: use hard kill if so requested
-	}
-	/* Process is exiting either because of the kill or because of
-	   a quit command sent by the backend; either way, wait for it to die.
-	*/
-	wait((int *) 0);
+    if (signalType & 1) {
+	    kill(cp->pid, signalType == 9 ? SIGKILL : SIGTERM); // [HGM] kill: for 9 hard-kill immediately
     }
+    signal(SIGALRM, AlarmCallBack);
+    pid = cp->pid;
+    if(signalType & 4) alarm(1 + appData.delayAfterQuit); // [HGM] kill: schedule hard kill if so requested
+    /* Process is exiting either because of the kill or because of
+       a quit command sent by the backend; either way, wait for it to die.
+    */
+    wait((int *) 0);
+    alarm(0); // cancel alarm if still pending
     close(cp->fdFrom);
     close(cp->fdTo);
+}
+
+char *
+BufferCommandOutput (char *command, int size)
+{
+    char *res = (char *) calloc(1, size);
+    if(res) {
+	int count;
+	FILE *f;
+#if 0
+	ChildProc *pr;
+	StartChildProcess(command, ".", (ProcRef) &pr);    // run command in daughter process
+	f = fdopen(pr->fdFrom, "r");
+	count = fread(res, 1, size-1, f);  // read its output
+	fclose(f);
+	DestroyChildProcess((ProcRef) pr, 9);
+	free(pr);
+#else
+	f = popen(command, "r");
+	if(!f) return res;
+	count = fread(res, 1, size-1, f);  // read its output
+	pclose(f);
+#endif
+	res[count > 0 ? count : 0] = NULLCHAR;  
+    }
+    return res; // return buffer with output
 }
 
 void
@@ -546,7 +561,7 @@ OpenTelnet (char *host, char *port, ProcRef *pr)
     } else {
       snprintf(cmdLine, sizeof(cmdLine), "%s %s %s", appData.telnetProgram, host, port);
     }
-    return StartChildProcess(cmdLine, "", pr);
+    return StartChildProcess(cmdLine, "", pr, 0);
 }
 
 int
@@ -646,18 +661,20 @@ OpenRcmd (char *host, char *user, char *cmd, ProcRef *pr)
     return -1;
 }
 
+Boolean stdoutClosed = FALSE;
+
 int
 OutputToProcess (ProcRef pr, char *message, int count, int *outError)
 {
     static int line = 0;
     ChildProc *cp = (ChildProc *) pr;
-    int outCount;
+    int outCount = count;
 
     if (pr == NoProc)
     {
-        if (appData.noJoin || !appData.useInternalWrap)
-            outCount = fwrite(message, 1, count, stdout);
-        else
+        if (appData.noJoin || !appData.useInternalWrap) {
+            if(!stdoutClosed) outCount = fwrite(message, 1, count, stdout);
+        } else
         {
             int width = get_term_width();
             int len = wrap(NULL, message, count, width, &line);
@@ -675,6 +692,7 @@ OutputToProcess (ProcRef pr, char *message, int count, int *outError)
                 free(msg);
             }
         }
+        if(*message != '\033') ConsoleWrite(message, count);
     }
     else
       outCount = write(cp->fdTo, message, count);

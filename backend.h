@@ -5,7 +5,8 @@
  * Massachusetts.
  *
  * Enhancements Copyright 1992-2001, 2002, 2003, 2004, 2005, 2006,
- * 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * Enhancements Copyright 2005 Alessandro Scotti
  *
@@ -54,46 +55,6 @@
 #ifndef XB_BACKEND
 #define XB_BACKEND
 
-/* unsigned int 64 for engine nodes work and display */
-#ifdef WIN32
-       /* I don't know the name for this type of other compiler
-        * If it not work, just modify here
-        * This is for MS Visual Studio
-        */
-       #ifdef _MSC_VER
-               #define u64 unsigned __int64
-               #define s64 signed __int64
-               #define u64Display "%I64u"
-               #define s64Display "%I64d"
-               #define u64Const(c) (c ## UI64)
-               #define s64Const(c) (c ## I64)
-       #else
-               /* place holder
-                * or dummy types for other compiler
-                * [HGM] seems that -mno-cygwin comple needs %I64?
-                */
-               #define u64 unsigned long long
-               #define s64 signed long long
-               #ifdef USE_I64
-                  #define u64Display "%I64u"
-                  #define s64Display "%I64d"
-               #else
-                  #define u64Display "%llu"
-                  #define s64Display "%lld"
-               #endif
-               #define u64Const(c) (c ## ULL)
-               #define s64Const(c) (c ## LL)
-       #endif
-#else
-       /* GNU gcc */
-       #define u64 unsigned long long
-       #define s64 signed long long
-       #define u64Display "%llu"
-       #define s64Display "%lld"
-       #define u64Const(c) (c ## ull)
-       #define s64Const(c) (c ## ll)
-#endif
-
 #include "lists.h"
 
 typedef int (*FileProc) P((FILE *f, int n, char *title));
@@ -113,8 +74,13 @@ extern Board boards[];
 extern char marker[BOARD_RANKS][BOARD_FILES];
 extern char lastMsg[MSG_SIZ];
 extern Boolean bookUp;
+extern Boolean addToBookFlag;
 extern int tinyLayout, smallLayout;
 extern Boolean mcMode;
+extern int dragging;
+extern char variantError[];
+extern char lastTalker[];
+extern int transparency[];
 
 void MarkMenuItem P((char *menuRef, int state));
 char *CmailMsg P((void));
@@ -142,6 +108,7 @@ int LoadGame P((FILE *f, int n, char *title, int useList));
 int LoadGameFromFile P((char *filename, int n, char *title, int useList));
 int CmailLoadGame P((FILE *f, int n, char *title, int useList));
 int ReloadGame P((int offset));
+int SaveSelected P((FILE *f, int dummy, char *dummy2));
 int SaveGame P((FILE *f, int dummy, char *dummy2));
 int SaveGameToFile P((char *filename, int append));
 int LoadPosition P((FILE *f, int n, char *title));
@@ -241,14 +208,19 @@ int PromoScroll P((int x, int y));
 void EditBookEvent P((void));
 Boolean DisplayBook P((int moveNr));
 void SaveToBook P((char *text));
+void AddBookMove P((char *text));
+void PlayBookMove P((char *text, int index));
+void HoverEvent P((int hiX, int hiY, int x, int y));
 int PackGame P((Board board));
-Boolean ParseFEN P((Board board, int *blackPlaysFirst, char *fen));
+Boolean ParseFEN P((Board board, int *blackPlaysFirst, char *fen, Boolean autoSize));
 void ApplyMove P((int fromX, int fromY, int toX, int toY, int promoChar, Board board));
 void PackMove P((int fromX, int fromY, int toX, int toY, ChessSquare promoPiece));
 void ics_printf P((char *format, ...));
 int GetEngineLine P((char *nick, int engine));
 void AddGameToBook P((int always));
 void FlushBook P((void));
+char PieceToChar P((ChessSquare p));
+int LoadPieceDesc P((char *s));
 
 char *StrStr P((char *string, char *match));
 char *StrCaseStr P((char *string, char *match));
@@ -270,7 +242,7 @@ extern GameInfo gameInfo;
 
 /* ICS vars used with backend.c and zippy.c */
 enum ICS_TYPE { ICS_GENERIC, ICS_ICC, ICS_FICS, ICS_CHESSNET /* not really supported */ };
-enum ICS_TYPE ics_type;
+extern enum ICS_TYPE ics_type;
 
 /* pgntags.c prototypes
  */
@@ -293,6 +265,8 @@ typedef struct XB_ListGame {
     GameInfo gameInfo;      /*  Note that some entries may be NULL. */
 } ListGame;
 
+extern int handSize;
+extern int border;
 extern int doubleClick;
 extern int storedGames;
 extern int opponentKibitzes;
@@ -323,7 +297,7 @@ int Explode P((Board board, int fromX, int fromY, int toX, int toY));
 
 typedef enum { CheckBox, ComboBox, TextBox, Button, Spin, ResetButton, SaveButton, ListBox, Graph, PopUp,
 		 FileName, PathName, Slider, Message, Fractional, Label, Icon,
-		 BoxBegin, BoxEnd, BarBegin, BarEnd, DropDown, Break, EndMark } Control;
+		 BoxBegin, BoxEnd, BarBegin, BarEnd, DropDown, Break, GroupBox, EndMark, Skip } Control;
 
 typedef struct XB_OPT {   // [HGM] options: descriptor of UCI-style option
     int value;          // current setting, starts as default
@@ -335,6 +309,7 @@ typedef struct XB_OPT {   // [HGM] options: descriptor of UCI-style option
     char **choice;      // points to array of combo choices in cps->combo
     Control type;
     char *name;         // holds both option name and text value (in allocated memory)
+    char **font;
 } Option;
 
 typedef struct XB_CPS {
@@ -376,6 +351,7 @@ typedef struct XB_CPS {
     int analyzing;
     int protocolVersion;
     int initDone;
+    int pseudo;
 
     /* Added by Tord: */
     int useFEN960;   /* 0=use "KQkq" style FENs, 1=use "HAha" style FENs */
@@ -391,6 +367,7 @@ typedef struct XB_CPS {
     int debug;      /* [HGM] ignore engine debug lines starting with '#'    */
     int maxNrOfSessions; /* [HGM] secondary TC: max args in 'level' command */
     int accumulateTC; /* [HGM] secondary TC: how to handle extra sessions   */
+    int drawDepth;    /* [HGM] egbb: search depth to play egbb draws        */
     int nps;          /* [HGM] nps: factor for node count to replace time   */
     int supportsNPS;
     int alphaRank;    /* [HGM] shogi: engine uses shogi-type coordinates    */
@@ -399,6 +376,8 @@ typedef struct XB_CPS {
     char *egtFormats; /* [HGM] EGT: supported tablebase formats             */
     int bookSuspend;  /* [HGM] book: go was deferred because of book hit    */
     int pause;        /* [HGM] pause: 1=supports it, 2=actually paused      */
+    int dice;         /* [HGM] dice: engine understands pips command        */
+    int highlight;    /* [HGM] engine wants to get lift and put commands    */
     int nrOptions;    /* [HGM] options: remembered option="..." features    */
 #define MAX_OPTIONS 200
     Option option[MAX_OPTIONS];
@@ -433,25 +412,39 @@ typedef struct {
 extern ChessProgramStats_Move pvInfoList[MAX_MOVES];
 extern Boolean shuffleOpenings;
 extern ChessProgramStats programStats;
+extern int remoteEchoOption;
 extern int opponentKibitzes; // used by wengineo.c
 extern int errorExitStatus;
 extern char *recentEngines;
-extern char *comboLine;
+extern char *currentEngine[];
 extern Boolean partnerUp, twoBoards;
+extern char engineVariant[];
+void SaveEngineSettings P((int n));
+void SaveEngineList P((void));
+char *EngineDefinedVariant P((ChessProgramState *cps, int n));
 void SettingsPopUp P((ChessProgramState *cps)); // [HGM] really in front-end, but CPS not known in frontend.h
 int WaitForEngine P((ChessProgramState *cps, DelayedEventCallback x));
 void Load P((ChessProgramState *cps, int n));
-int MultiPV P((ChessProgramState *cps));
+int MultiPV P((ChessProgramState *cps, int kind));
 void MoveHistorySet P(( char movelist[][2*MOVE_LEN], int first, int last, int current, ChessProgramStats_Move * pvInfo ));
 void MakeEngineOutputTitle P((void));
 void LoadTheme P((void));
 void CreateBookEvent P((void));
+char *SupportedVariant P((char *list, VariantClass v, int w, int h, int s, int proto, char *engine));
+char *CollectPieceDescriptors P((void));
+void RefreshSettingsDialog P((ChessProgramState *cps, int val));
+void StartChessProgram P((ChessProgramState *cps));
+void SendToICS P((char *s));
+int PosFlags P((int n));
+
 
 /* A point in time */
 typedef struct {
     long sec;  /* Assuming this is >= 32 bits */
     int ms;    /* Assuming this is >= 16 bits */
 } TimeMark;
+
+extern TimeMark programStartTime;
 
 void GetTimeMark P((TimeMark *));
 long SubtractTimeMarks P((TimeMark *, TimeMark *));

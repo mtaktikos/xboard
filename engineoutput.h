@@ -1,7 +1,8 @@
 /*
  * wengineo.h -- Clipboard routines for WinBoard
  *
- * Copyright 2000, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * Copyright 2000, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * Enhancements Copyright 2005 Alessandro Scotti
  *
@@ -55,7 +56,7 @@ enum ENGINE_STATE { STATE_UNKNOWN, STATE_THINKING, STATE_IDLE, STATE_PONDERING, 
 
 extern int  windowMode;
 extern char exclusionHeader[];
-extern int highTextStart[2], highTextEnd[2];
+extern int highTextStart[2], highTextEnd[2], endPV;
 
 // back-end called by front-end
 void SetEngineState( int which, enum ENGINE_STATE state, char * state_data );
@@ -69,5 +70,6 @@ void DoClearMemo(int which);
 void ResizeWindowControls( int mode );
 int  EngineOutputDialogExists();
 void SetEngineOutputTitle( char *title );
+void Collapse P((int colNr));
 void InitEngineOutput P((Option *opt, Option *memo2)); // XB only
 void DrawWidgetIcon P((Option *opt, int nIcon)); // XB only

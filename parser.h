@@ -5,7 +5,8 @@
  * Massachusetts.
  *
  * Enhancements Copyright 1992-2001, 2002, 2003, 2004, 2005, 2006,
- * 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * Enhancements Copyright 2005 Alessandro Scotti
  *
@@ -62,4 +63,6 @@ extern int yyskipmoves;  /* If TRUE, all moves are reported as AmbiguousMove
 extern char *yy_text;  /* Needed because yytext can be either a char[]
 			  or a (non-constant) char* */
 extern int yyoffset P((void));
-extern signed char initialRights[BOARD_FILES];
+extern unsigned char initialRights[BOARD_FILES];
+extern signed char  castlingRank[BOARD_FILES];
+

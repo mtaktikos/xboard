@@ -5,7 +5,8 @@
  * Massachusetts.
  *
  * Enhancements Copyright 1992-2001, 2002, 2003, 2004, 2005, 2006,
- * 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * The following terms apply to Digital Equipment Corporation's copyright
  * interest in XBoard:
@@ -105,6 +106,7 @@ extern char *getenv();
 char  *gameCopyFilename, *gamePasteFilename;
 Boolean saveSettingsOnExit;
 char *settingsFileName;
+char gamesDir[MSG_SIZ], positionsDir[MSG_SIZ], textureDir[MSG_SIZ], bookDir[MSG_SIZ], piecesDir[MSG_SIZ];
 
 static int
 LoadGamePopUp (FILE *f, int gameNumber, char *title)
@@ -173,10 +175,12 @@ ReloadPositionProc ()
 void
 LoadPositionProc()
 {
+    static char buf[MSG_SIZ];
     if (gameMode == AnalyzeMode || gameMode == AnalyzeFile) {
 	Reset(FALSE, TRUE);
     }
-    FileNamePopUp(_("Load position file name?"), "", ".fen .epd .pos", LoadPosition, "rb");
+    snprintf(buf, MSG_SIZ, "%s/", appData.positionDir);
+    FileNamePopUp(_("Load position file name?"), buf, ".fen .epd .pos", LoadPosition, "rb");
 }
 
 void
@@ -254,6 +258,8 @@ QuitProc ()
 void
 MatchProc ()
 {
+    static Enables matchOff[] = { { "Mode.MachineMatch", False }, { NULL, False } };
+    if(matchMode) SetMenuEnables(matchOff);
     MatchEvent(2);
 }
 
@@ -310,15 +316,6 @@ SaveSettingsProc ()
 }
 
 void
-InfoProc ()
-{
-    char buf[MSG_SIZ];
-    snprintf(buf, sizeof(buf), "xterm -e info --directory %s --directory . -f %s &",
-	    INFODIR, INFOFILE);
-    system(buf);
-}
-
-void
 BugReportProc ()
 {
     char buf[MSG_SIZ];
@@ -362,11 +359,10 @@ AboutProc ()
     snprintf(buf, sizeof(buf),
 _("%s%s\n\n"
 "Copyright 1991 Digital Equipment Corporation\n"
-"Enhancements Copyright 1992-2013 Free Software Foundation\n"
+"Enhancements Copyright 1992-2016 Free Software Foundation\n"
 "Enhancements Copyright 2005 Alessandro Scotti\n\n"
 "%s is free software and carries NO WARRANTY;"
-"see the file COPYING for more information.\n"
-"The GTK build of this version is experimental and unstable\n\n"
+"see the file COPYING for more information.\n\n"
 "Visit XBoard on the web at: http://www.gnu.org/software/xboard/\n"
 "Check out the newest features at: http://www.gnu.org/software/xboard/whats_new.html\n\n"
 "Report bugs via email at: <bug-xboard@gnu.org>\n\n"
@@ -386,6 +382,32 @@ DebugProc ()
 	if(debugFP == NULL) debugFP = stderr;
 	else setbuf(debugFP, NULL);
     }
+}
+
+void
+EditEngineProc ()
+{
+    if(*engineListFile) ParseSettingsFile(engineListFile, &engineListFile);
+    EditAnyPopUp(firstChessProgramNames, &firstChessProgramNames, _("Registered Engines"));
+}
+
+void
+EditThemesProc ()
+{
+    EditAnyPopUp(appData.themeNames, &appData.themeNames, _("Predefined Themes"));
+}
+
+void
+EditMenuProc ()
+{
+    EditAnyPopUp(icsTextMenuString, &icsTextMenuString, _("ICS Text-Menu Definition"));
+}
+
+void
+MuteProc ()
+{
+    mute = !mute;
+    MarkMenuItem("Options.Mute", mute);
 }
 
 void
@@ -574,14 +596,23 @@ CreateBookDelayed ()
   ScheduleDelayedEvent(CreateBookEvent, 50);
 }
 
+void
+SaveSelectedProc ()
+{
+  FileNamePopUp(_("Save game file name?"),
+		  "",
+		  ".pgn",
+		  SaveSelected, "a");
+}
+
 /*
  *  Menu definition tables
  */
 
 MenuItem fileMenu[] = {
   {N_("New Game"),             "<Ctrl>n",          "NewGame",              ResetGameEvent},
-  {N_("New Shuffle Game ..."),  NULL,              "NewShuffleGame",       ShuffleMenuProc},
-  {N_("New Variant ..."),      "<Alt><Shift>v",    "NewVariant",           NewVariantProc},// [HGM] variant: not functional yet
+  {N_("New Shuffle Game..."),   NULL,              "NewShuffleGame",       ShuffleMenuProc},
+  {N_("New Variant..."),       "<Alt><Shift>v",    "NewVariant",           NewVariantProc},// [HGM] variant: not functional yet
   {"----",                      NULL,               NULL,                  NothingProc},
   {N_("Load Game"),            "<Ctrl>o",          "LoadGame",             LoadGameProc,           CHECK},
   {N_("Load Position"),        "<Ctrl><Shift>o",   "LoadPosition",         LoadPositionProc},
@@ -590,6 +621,7 @@ MenuItem fileMenu[] = {
   {"----",                      NULL,               NULL,                  NothingProc},
   {N_("Save Game"),            "<Ctrl>s",          "SaveGame",             SaveGameProc},
   {N_("Save Position"),        "<Ctrl><Shift>s",   "SavePosition",         SavePositionProc},
+  {N_("Save Selected Games"),   NULL,              "SaveSelected",         SaveSelectedProc},
   {N_("Save Games as Book"),    NULL,              "CreateBook",           CreateBookDelayed},
   {"----",                      NULL,               NULL,                  NothingProc},
   {N_("Mail Move"),             NULL,              "MailMove",             MailMoveEvent},
@@ -631,14 +663,17 @@ MenuItem viewMenu[] = {
   {N_("Move History"),      "<Alt><Shift>h", "MoveHistory",     HistoryShowProc,        CHECK}, // [HGM] hist: activate 4.2.7 code
   {N_("Evaluation Graph"),  "<Alt><Shift>e", "EvaluationGraph", EvalGraphProc,          CHECK},
   {N_("Game List"),         "<Alt><Shift>g", "GameList",        ShowGameListProc,       CHECK},
-  {N_("ICS text menu"),      NULL,           "ICStextmenu",     IcsTextProc,            CHECK},
   {"----",                   NULL,            NULL,             NothingProc},
   {N_("Tags"),               NULL,           "Tags",            EditTagsProc,           CHECK},
   {N_("Comments"),           NULL,           "Comments",        EditCommentProc,        CHECK},
   {N_("ICS Input Box"),      NULL,           "ICSInputBox",     IcsInputBoxProc,        CHECK},
-  {N_("Open Chat Window"),   NULL,           "OpenChatWindow",  ChatProc,               CHECK},
+  {N_("ICS/Chat Console"),   NULL,           "OpenChatWindow",  ChatProc,               CHECK},
+  {N_("ICS text menu"),      NULL,           "ICStextmenu",     IcsTextProc,            CHECK},
+  {N_("Edit ICS menu..."),   NULL,           "EditTextMenu",    EditMenuProc},
   {"----",                   NULL,            NULL,             NothingProc},
+  {N_("Edit Theme List..."), NULL,           "EditThemeList",   EditThemesProc},
   {N_("Board..."),           NULL,           "Board",           BoardOptionsProc},
+  {N_("Fonts..."),           NULL,           "Fonts",           FontsProc},
   {N_("Game List Tags..."),  NULL,           "GameListTags",    GameListOptionsProc},
   {NULL,                     NULL,            NULL,             NULL}
 };
@@ -681,11 +716,14 @@ MenuItem actionMenu[] = {
 };
 
 MenuItem engineMenu[100] = {
-  {N_("Load New 1st Engine ..."),  NULL,     "LoadNew1stEngine", LoadEngine1Proc},
-  {N_("Load New 2nd Engine ..."),  NULL,     "LoadNew2ndEngine", LoadEngine2Proc},
+  {N_("Edit Engine List..."),      NULL,     "EditEngList",      EditEngineProc},
   {"----",                         NULL,      NULL,              NothingProc},
-  {N_("Engine #1 Settings ..."),   NULL,     "Engine#1Settings", FirstSettingsProc},
-  {N_("Engine #2 Settings ..."),   NULL,     "Engine#2Settings", SecondSettingsProc},
+  {N_("Load New 1st Engine..."),   NULL,     "LoadNew1stEngine", LoadEngine1Proc},
+  {N_("Load New 2nd Engine..."),   NULL,     "LoadNew2ndEngine", LoadEngine2Proc},
+  {"----",                         NULL,      NULL,              NothingProc},
+  {N_("Engine #1 Settings..."),    NULL,     "Engine#1Settings", FirstSettingsProc},
+  {N_("Engine #2 Settings..."),    NULL,     "Engine#2Settings", SecondSettingsProc},
+  {N_("Common Settings..."), "<Alt><Shift>u","CommonEngine",     UciMenuProc},
   {"----",                         NULL,      NULL,              NothingProc},
   {N_("Hint"),                     NULL,     "Hint",             HintEvent},
   {N_("Book"),                     NULL,     "Book",             BookEvent},
@@ -696,18 +734,19 @@ MenuItem engineMenu[100] = {
 };
 
 MenuItem optionsMenu[] = {
+  {N_("Mute all Sounds"),         NULL,             "Mute",                MuteProc,         CHECK},
+  {"----",                        NULL,              NULL,                 NothingProc},
 #ifdef OPTIONSDIALOG
-  {N_("General ..."),             NULL,             "General",             OptionsProc},
+  {N_("General..."),              NULL,             "General",             OptionsProc},
 #endif
-  {N_("Time Control ..."),       "<Alt><Shift>t",   "TimeControl",         TimeControlProc},
-  {N_("Common Engine ..."),      "<Alt><Shift>u",   "CommonEngine",        UciMenuProc},
-  {N_("Adjudications ..."),      "<Alt><Shift>j",   "Adjudications",       EngineMenuProc},
-  {N_("ICS ..."),                 NULL,             "ICS",                 IcsOptionsProc},
-  {N_("Match ..."),               NULL,             "Match",               MatchOptionsProc},
-  {N_("Load Game ..."),           NULL,             "LoadGame",            LoadOptionsProc},
-  {N_("Save Game ..."),           NULL,             "SaveGame",            SaveOptionsProc},
-  {N_("Game List ..."),           NULL,             "GameList",            GameListOptionsProc},
-  {N_("Sounds ..."),              NULL,             "Sounds",              SoundOptionsProc},
+  {N_("Time Control..."),        "<Alt><Shift>t",   "TimeControl",         TimeControlProc},
+  {N_("Adjudications..."),       "<Alt><Shift>j",   "Adjudications",       EngineMenuProc},
+  {N_("ICS..."),                  NULL,             "ICS",                 IcsOptionsProc},
+  {N_("Tournament..."),           NULL,             "Match",               MatchOptionsProc},
+  {N_("Load Game..."),            NULL,             "LoadGame",            LoadOptionsProc},
+  {N_("Save Game..."),            NULL,             "SaveGame",            SaveOptionsProc},
+  {N_("Game List..."),            NULL,             "GameList",            GameListOptionsProc},
+  {N_("Sounds..."),               NULL,             "Sounds",              SoundOptionsProc},
   {"----",                        NULL,              NULL,                 NothingProc},
 #ifndef OPTIONSDIALOG
   {N_("Always Queen"),           "<Ctrl><Shift>q",  "AlwaysQueen",         AlwaysQueenProc},
@@ -792,7 +831,8 @@ Menu menuBar[] = {
     {N_("Engine"),  "Engine", engineMenu},
     {N_("Options"), "Options", optionsMenu},
     {N_("Help"),    "Help", helpMenu},
-    {NULL, NULL, NULL}
+    {NULL, NULL, NULL},
+    {   "",         "None", noMenu}
 };
 
 MenuItem *
@@ -1137,6 +1177,93 @@ ModeToWidgetName (GameMode mode)
     }
 }
 
+static void
+InstallNewEngine (char *command, char *dir, char *variants, char *protocol)
+{ // install the given engine in XBoard's -firstChessProgramNames
+    char buf[MSG_SIZ], *quote = "";
+    if(strchr(command, ' ')) { // quoting needed
+	if(!strchr(command, '"')) quote = "\""; else
+	if(!strchr(command, '\'')) quote = "'"; else {
+	    printf("Could not auto-install %s\n", command); // too complex
+	}
+    }
+    // construct engine line, with optional -fd and -fUCI arguments
+    snprintf(buf, MSG_SIZ, "%s%s%s", quote, command, quote);
+    if(strcmp(dir, "") && strcmp(dir, "."))
+	snprintf(buf + strlen(buf), MSG_SIZ - strlen(buf), " -fd %s", dir);
+    if(!strcmp(protocol, "uci"))
+	snprintf(buf + strlen(buf), MSG_SIZ - strlen(buf), " -fUCI");
+    if(strstr(firstChessProgramNames, buf)) return; // avoid duplicats
+    // append line
+    quote = malloc(strlen(firstChessProgramNames) + strlen(buf) + 2);
+    sprintf(quote, "%s%s\n", firstChessProgramNames, buf);
+    FREE(firstChessProgramNames); firstChessProgramNames = quote;
+}
+
+#ifdef HAVE_DIRENT_H
+#include <dirent.h>
+#else
+#include <sys/dir.h>
+#define dirent direct
+#endif
+
+static void
+InstallFromDir (char *dirName, char *protocol, char *settingsFile)
+{   // scan system for new plugin specs in given directory
+    DIR *dir;
+    struct dirent *dp;
+    struct stat statBuf;
+    time_t lastSaved = 0;
+    char buf[1024];
+
+    if(!stat(settingsFile, &statBuf)) lastSaved = statBuf.st_mtime;
+    snprintf(buf, 1024, "%s/%s", dirName, protocol);
+
+    if(!(dir = opendir(buf))) return;
+    while( (dp = readdir(dir))) {
+	time_t installed = 0;
+	if(!strstr(dp->d_name, ".eng")) continue; // to suppress . and ..
+	snprintf(buf, 1024, "%s/%s/%s", dirName, protocol, dp->d_name);
+	if(!stat(buf, &statBuf)) installed = statBuf.st_mtime;
+	if(lastSaved == 0 || (int) (installed - lastSaved) > 0) { // first time we see it
+	    FILE *f = fopen(buf, "r");
+	    if(f) { // read the plugin-specs
+		char engineCommand[1024], engineDir[1024], variants[1024];
+		char bad=0, dummy, *engineCom = engineCommand;
+		int major, minor;
+		if(fscanf(f, "plugin spec %d.%d%c", &major, &minor, &dummy) != 3 ||
+		   fscanf(f, "%[^\n]%c", engineCommand, &dummy) != 2 ||
+		   fscanf(f, "%[^\n]%c", variants, &dummy) != 2) bad = 1;
+		fclose(f);
+		if(bad) continue;
+		// uncomment following two lines for chess-only installs
+//		if(!(p = strstr(variants, "chess")) ||
+//		     p != variants && p[-1] != ',' || p[5] && p[5] != ',') continue;
+		// split off engine working directory (if any)
+		strcpy(engineDir, "");
+		if(sscanf(engineCommand, "cd %[^;];%c", engineDir, &dummy) == 2)
+		    engineCom = engineCommand + strlen(engineDir) + 4;
+		InstallNewEngine(engineCom, engineDir, variants, protocol);
+	    }
+	}
+    }
+    closedir(dir);
+}
+
+static void
+AutoInstallProtocol (char *settingsFile, char *protocol)
+{   // install new engines for given protocol (both from package and source)
+    InstallFromDir("/usr/local/share/games/plugins", protocol, settingsFile);
+    InstallFromDir("/usr/share/games/plugins", protocol, settingsFile);
+}
+
+void
+AutoInstall (char *settingsFile)
+{   // install all new XBoard and UCI engines
+    AutoInstallProtocol(settingsFile, "xboard");
+    AutoInstallProtocol(settingsFile, "uci");
+}
+
 void
 InitMenuMarkers()
 {
@@ -1210,4 +1337,8 @@ InitMenuMarkers()
     if (saveSettingsOnExit) {
 	MarkMenuItem("Options.SaveSettingsonExit", True);
     }
+    EnableNamedMenuItem("File.SaveSelected", False);
+
+    // all XBoard builds get here, but not WinBoard...
+    if(*appData.autoInstall) AutoInstall(settingsFileName);
 }

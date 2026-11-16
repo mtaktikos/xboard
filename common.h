@@ -5,7 +5,8 @@
  * Massachusetts.
  *
  * Enhancements Copyright 1992-2001, 2002, 2003, 2004, 2005, 2006,
- * 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * Enhancements Copyright 2005 Alessandro Scotti
  *
@@ -112,6 +113,46 @@ typedef char *String;
 
 /* End compatibility grunge */
 
+/* unsigned int 64 for engine nodes work and display */
+#ifdef WIN32
+       /* I don't know the name for this type of other compiler
+        * If it not work, just modify here
+        * This is for MS Visual Studio
+        */
+       #ifdef _MSC_VER
+               #define u64 unsigned __int64
+               #define s64 signed __int64
+               #define u64Display "%I64u"
+               #define s64Display "%I64d"
+               #define u64Const(c) (c ## UI64)
+               #define s64Const(c) (c ## I64)
+       #else
+               /* place holder
+                * or dummy types for other compiler
+                * [HGM] seems that -mno-cygwin comple needs %I64?
+                */
+               #define u64 unsigned long long
+               #define s64 signed long long
+               #ifdef USE_I64
+                  #define u64Display "%I64u"
+                  #define s64Display "%I64d"
+               #else
+                  #define u64Display "%llu"
+                  #define s64Display "%lld"
+               #endif
+               #define u64Const(c) (c ## ULL)
+               #define s64Const(c) (c ## LL)
+       #endif
+#else
+       /* GNU gcc */
+       #define u64 unsigned long long
+       #define s64 signed long long
+       #define u64Display "%llu"
+       #define s64Display "%lld"
+       #define u64Const(c) (c ## ull)
+       #define s64Const(c) (c ## ll)
+#endif
+
 #define PROTOVER                2       /* engine protocol version */
 
 // [HGM] license: Messages that engines must print to satisfy their license requirements for patented variants
@@ -132,7 +173,7 @@ typedef char *String;
    outside world in ASCII. In a similar way, the different rank numbering
    systems (starting at rank 0 or 1) are implemented by redefining '1'.
 */
-#define BOARD_RANKS             11             /* [HGM] for in declarations  */
+#define BOARD_RANKS             17            /* [HGM] for in declarations  */
 #define BOARD_FILES             16             /* [HGM] for in declarations  */
 #define BOARD_HEIGHT (gameInfo.boardHeight)    /* [HGM] made user adjustable */
 #define BOARD_WIDTH  (gameInfo.boardWidth + 2*gameInfo.holdingsWidth)
@@ -140,9 +181,15 @@ typedef char *String;
 #define BOARD_RGHT   (gameInfo.boardWidth + gameInfo.holdingsWidth)
 #define CASTLING     (BOARD_RANKS-1)           /* [HGM] hide in upper rank   */
 #define VIRGIN       (BOARD_RANKS-2)           /* [HGM] pieces not moved     */
+#define CHECK_COUNT  CASTLING][(BOARD_FILES-8) /* [HGM] in upper rank        */
+#define LAST_TO      CASTLING][(BOARD_FILES-7) /* [HGM] in upper rank        */
+#define TOUCHED_W    CASTLING][(BOARD_FILES-6) /* [HGM] in upper rank        */
+#define TOUCHED_B    CASTLING][(BOARD_FILES-5) /* [HGM] in upper rank        */
+#define EP_RANK      CASTLING][(BOARD_FILES-4) /* [HGM] in upper rank        */
+#define EP_FILE      CASTLING][(BOARD_FILES-3) /* [HGM] in upper rank        */
 #define EP_STATUS    CASTLING][(BOARD_FILES-2) /* [HGM] in upper rank        */
 #define HOLDINGS_SET CASTLING][(BOARD_FILES-1) /* [HGM] in upper-right corner*/
-#define ONE          ('1'-(BOARD_HEIGHT>9))    /* [HGM] foremost board rank  */
+#define ONE          ('1'-(BOARD_HEIGHT==10)-appData.rankOffset)  /* [HGM] foremost board rank  */
 #define AAA          ('a'-BOARD_LEFT)          /* [HGM] leftmost board file  */
 #define VIRGIN_W                 1             /* [HGM] flags in Board[VIRGIN][X] */
 #define VIRGIN_B                 2
@@ -181,7 +228,8 @@ typedef char *String;
 #define LOWTIMEWARNING_COLOR    "#FF0000"
 #define BELLCHAR                '\007'
 #define NULLCHAR                '\000'
-#define FEATURE_TIMEOUT         10000 /*ms*/
+#define FEATURE_TIMEOUT         1000 /*ms*/
+#define MATE_SCORE              100000
 
 #define CLOCK_FONT 0
 #define MESSAGE_FONT 1
@@ -248,12 +296,28 @@ typedef enum {
     WhitePawn, WhiteKnight, WhiteBishop, WhiteRook, WhiteQueen,
     WhiteFerz, WhiteAlfil, WhiteAngel, WhiteMarshall, WhiteWazir, WhiteMan,
     WhiteCannon, WhiteNightrider, WhiteCardinal, WhiteDragon, WhiteGrasshopper,
-    WhiteSilver, WhiteFalcon, WhiteLance, WhiteCobra, WhiteUnicorn, WhiteKing,
+    WhiteSilver, WhiteFalcon, WhiteLance, WhiteCobra, WhiteUnicorn, WhiteLion,
+    WhiteSword, WhiteZebra, WhiteCamel, WhiteTower, WhiteWolf,
+    WhiteHat, WhiteDuck, WhiteAmazon, WhiteFlying, WhiteGnu, WhiteCub,
+    WhiteShield, WhiteHorse, WhiteWizard, WhiteCopper, WhiteIron,
+    WhiteViking, WhiteFlag, WhiteAxe, WhiteDolphin, WhiteCat, WhiteClaw,
+    WhiteWheel, WhiteButterfly, WhitePBishop, WhitePRook, WhiteHCrown,
+    WhiteShierd, WhiteMonarch, WhiteMother, WhiteNothing, WhiteDrunk, WhiteWheer,
+    WhiteTokin, WhitePKnight, WhitePCardinal, WhitePDragon, WhitePLance,
+    WhitePSilver, WhiteDagger, WhitePSword, WhitePDagger, WhiteCrown, WhiteKing,
     BlackPawn, BlackKnight, BlackBishop, BlackRook, BlackQueen,
     BlackFerz, BlackAlfil, BlackAngel, BlackMarshall, BlackWazir, BlackMan,
     BlackCannon, BlackNightrider, BlackCardinal, BlackDragon, BlackGrasshopper,
-    BlackSilver, BlackFalcon, BlackLance, BlackCobra, BlackUnicorn, BlackKing,
-    EmptySquare,
+    BlackSilver, BlackFalcon, BlackLance, BlackCobra, BlackUnicorn, BlackLion,
+    BlackSword, BlackZebra, BlackCamel, BlackTower, BlackWolf,
+    BlackHat, BlackDuck, BlackAmazon, BlackFlying, BlackGnu, BlackCub,
+    BlackShield, BlackHorse, BlackWizard, BlackCopper, BlackIron,
+    BlackViking, BlackFlag, BlackAxe, BlackDolphin, BlackCat, BlackClaw,
+    BlackWheel, BlackButterfly, BlackPBishop, BlackPRook, BlackHCrown,
+    BlackShierd, BlackMonarch, BlackMother, BlackNothing, BlackDrunk, BlackWheer,
+    BlackTokin, BlackPKnight, BlackPCardinal, BlackPDragon, BlackPLance,
+    BlackPSilver, BlackDagger, BlackPSword, BlackPDagger, BlackCrown, BlackKing,
+    EmptySquare, DarkSquare,
     NoRights, // [HGM] gamestate: for castling rights hidden in board[CASTLING]
     ClearBoard, WhitePlay, BlackPlay, PromotePiece, DemotePiece /*for use on EditPosition menus*/
   } ChessSquare;
@@ -261,9 +325,14 @@ typedef enum {
 /* [HGM] some macros that can be used as prefixes to convert piece types */
 #define WHITE_TO_BLACK (int)BlackPawn - (int)WhitePawn + (int)
 #define BLACK_TO_WHITE (int)WhitePawn - (int)BlackPawn + (int)
-#define PROMOTED       (int)WhiteDragon - (int)WhiteRook + (int)
-#define DEMOTED        (int)WhiteRook - (int)WhiteDragon + (int)
+#define PROMO          (int)WhiteDragon - (int)WhiteRook + (int)
+#define PROMOTED(X)    (promoPartner[X])
+#define DEMOTED(X)     (promoPartner[X])
 #define SHOGI          (int)EmptySquare + (int)
+#define CHUPROMOTED(X) (promoPartner[X])
+#define CHUDEMOTED(X)  (promoPartner[X])
+#define IS_SHOGI(V)    ((V) == VariantShogi || (V) == VariantChu)
+#define IS_LION(V)     ((V) == WhiteLion || (V) == BlackLion)
 
 
 typedef ChessSquare Board[BOARD_RANKS][BOARD_FILES];
@@ -279,7 +348,7 @@ typedef enum {
     WhitePromotion, WhiteNonPromotion,
     BlackPromotion, BlackNonPromotion,
     WhiteCapturesEnPassant, BlackCapturesEnPassant,
-    WhiteDrop, BlackDrop,
+    WhiteDrop, BlackDrop, FirstLeg, Swap,
     NormalMove, AmbiguousMove, IllegalMove, ImpossibleMove,
     WhiteWins, BlackWins, GameIsDrawn, GameUnfinished,
     GNUChessGame, XBoardGame, MoveNumberOne, Open, Close, Nothing,
@@ -293,7 +362,7 @@ typedef enum {
 } ColorClass;
 
 typedef enum {
-    SoundMove, SoundBell, SoundAlarm, SoundIcsWin, SoundIcsLoss,
+    SoundMove, SoundBell, SoundRoar, SoundAlarm, SoundIcsWin, SoundIcsLoss,
     SoundIcsDraw, SoundIcsUnfinished, NSoundClasses
 } SoundClass;
 
@@ -323,7 +392,7 @@ typedef enum {
     Variant35,           /* Temporary name for possible future ICC wild 35 */
     Variant36,           /* Temporary name for possible future ICC wild 36 */
     VariantShogi,        /* [HGM] added variants */
-    VariantXiangqi,
+    VariantChu,
     VariantCourier,
     VariantGothic,
     VariantCapablanca,
@@ -338,10 +407,15 @@ typedef enum {
     VariantGreat,
     VariantTwilight,
     VariantMakruk,
-    VariantASEAN,
     VariantSChess,
     VariantGrand,
     VariantSpartan,
+    VariantXiangqi,
+    VariantASEAN,
+    VariantLion,
+    VariantChuChess,
+    VariantJanggi,
+    VariantDuck,
     VariantUnknown       /* Catchall for other unknown variants */
 } VariantClass;
 
@@ -370,7 +444,7 @@ typedef enum {
   "wild35", \
   "wild36", \
   "shogi", \
-  "xiangqi", \
+  "chu", \
   "courier", \
   "gothic", \
   "capablanca", \
@@ -385,10 +459,15 @@ typedef enum {
   "great",\
   "twilight",\
   "makruk",\
-  "asean",\
   "seirawan",\
   "grand",\
   "spartan",\
+  "xiangqi", \
+  "asean",\
+  "lion",\
+  "elven",\
+  "janggi",\
+  "duck",\
   "unknown" \
 }
 
@@ -424,6 +503,7 @@ typedef struct {
     char *pgnName[ENGINES];
     Boolean firstPlaysBlack;
     Boolean noChessProgram;
+    char *positionDir;
     char *host[ENGINES];
     char *themeNames;
     char *pieceDirectory;
@@ -450,13 +530,16 @@ typedef struct {
     char *loadGameFile;
     int loadGameIndex;      /* game # within file */
     char *saveGameFile;
+    char *autoInstall;
     Boolean autoSaveGames;
     Boolean onlyOwn;        /* [HGM] suppress auto-saving of observed games */
     char *loadPositionFile;
     int loadPositionIndex;  /* position # within file */
     char *savePositionFile;
+    Boolean fischerCastling;/* [HGM] fischer: allow Fischr castling in any variant */
     Boolean matchMode;
     int matchGames;
+    Boolean epd;
     Boolean monoMode;
     Boolean debugMode;
     Boolean clockMode;
@@ -470,15 +553,20 @@ typedef struct {
     char *clockFont;
     char *messageFont; /* WinBoard only */
     char *coordFont;
-    char *font; /* xboard only: all other fonts */
-    char *tagsFont; /* WinBoard only */
-    char *commentFont; /* WinBoard only */
-    char *icsFont; /* WinBoard only */
+    char *font; /* xboard only */
+    char *tagsFont;
+    char *commentFont;
+    char *historyFont;
+    char *gameListFont;
+    char *icsFont;
+    int analysisBell;
     Boolean ringBellAfterMoves;
     Boolean autoCallFlag;
     Boolean flipView;
     Boolean autoFlipView;
     char *cmailGameName; /* xboard only */
+    Boolean moveTime;
+    Boolean headers;
     Boolean alwaysPromoteToQueen;
     Boolean oldSaveStyle;
     Boolean oneClick;
@@ -496,6 +584,7 @@ typedef struct {
     Boolean localLineEditing; /* WinBoard only */
     Boolean zippyTalk;
     Boolean zippyPlay;
+    int jewelled;
     int flashCount; /* Number of times to flash (xboard only) */
     int flashRate; /* Flashes per second (xboard only)  */
     int msLoginDelay;  /* Delay per character (in msec) while sending
@@ -524,6 +613,7 @@ typedef struct {
     char *soundSeek;
     char *soundMove;     // [HGM] IMPORTANT: order must be as in SoundClass
     char *soundBell;
+    char *soundRoar;
     char *soundIcsAlarm;
     char *soundIcsWin;
     char *soundIcsLoss;
@@ -562,6 +652,7 @@ typedef struct {
     Boolean scoreIsAbsolute[ENGINES];  /* If true, engine score is always from white side */
     Boolean saveExtendedInfoInPGN; /* If true, saved PGN games contain extended info */
     Boolean hideThinkingFromHuman; /* If true, program thinking is generated but not displayed in human/computer matches */
+    Boolean cumulativeTimePGN;     /* If true, times saved in PGN extended info is time left on clock */
     Boolean useBitmaps;
     Boolean useFont;
     Boolean useBorder;
@@ -571,6 +662,7 @@ typedef struct {
     int darkBackTextureMode;
     char * renderPiecesWithFont; /* Name of font for rendering chess pieces */
     char * fontToPieceTable; /* Map to translate font character to chess pieces */
+    char * inscriptions;         /* text (kanji) to write on top of a piece     */
     int fontBackColorWhite;
     int fontForeColorWhite;
     int fontBackColorBlack;
@@ -600,6 +692,7 @@ typedef struct {
     int adjudicateDrawMoves;
     Boolean autoDisplayComment;
     Boolean autoDisplayTags;
+    Boolean pseudo[ENGINES]; /* [HGM] pseudo-engines */
     Boolean isUCI[ENGINES];
     Boolean hasOwnBookUCI[ENGINES];
     char * adapterCommand;
@@ -618,6 +711,7 @@ typedef struct {
     /* [HGM] Board size */
     int NrFiles;
     int NrRanks;
+    int rankOffset;
     int holdingsSize;
     int matchPause;
     char * pieceToCharTable;
@@ -653,13 +747,17 @@ typedef struct {
     int zippyShortGame; /* [HGM] aborter   */
 #endif
     Boolean lowTimeWarning; /* [HGM] low time */
+    Boolean quitNext;
     char *lowTimeWarningColor;
 
     char *serverFileName;
     char *serverMovesName;
+    char *languageDir;
+    char *finger;
     Boolean suppressLoadMoves;
     int serverPause;
     int timeOdds[ENGINES];
+    int drawDepth[ENGINES];
     int timeOddsMode;
     int accumulateTC[ENGINES];
     int NPS[ENGINES];
@@ -670,6 +768,8 @@ typedef struct {
     int dateThreshold;
     int searchMode;
     int stretch;
+    int minPieces;
+    int maxPieces;
     Boolean ignoreColors;
     Boolean findMirror;
     char *userName;
@@ -681,6 +781,7 @@ typedef struct {
     char *logo[ENGINES];/* [HGM] logo      */
     char *pairingEngine;/* [HGM] pairing   */
     Boolean autoLogo;
+    Boolean fixedSize;
     Boolean noGUI;      /* [HGM] fast: suppress all display updates */
     char *engOptions[ENGINES]; /* [HGM] options   */
     char *fenOverride[ENGINES];
@@ -701,12 +802,19 @@ typedef struct {
     Boolean autoCopyPV;
     Boolean pieceMenu;
     Boolean sweepSelect;
+    Boolean monoMouse;
     Boolean whitePOV;
     Boolean scoreWhite;
     Boolean pvSAN[ENGINES];
 
+    int defProtocol;
     int recentEngines;
     char *recentEngineList;
+    char *defEngDir;
+    char *message;
+    char *suppress;
+    char *fen;
+    char *men;
     char *tourneyFile;
     char *defName;
     char *processes;
@@ -717,6 +825,8 @@ typedef struct {
     int tourneyType;
     int tourneyCycles;
     int seedBase;
+    int bmpSave;
+    char *alarmTimes;
     Boolean roundSync;
     Boolean cycleSync;
     Boolean numberTag;
@@ -763,6 +873,7 @@ typedef struct {
     int whiteRating;    /* -1 if unknown */
     int blackRating;    /* -1 if unknown */
     VariantClass variant;
+    char *variantName;
     char *outOfBook;    /* [AS] Move and score when engine went out of book */
     int boardWidth;     /* [HGM] adjustable board size */
     int boardHeight;
@@ -793,6 +904,7 @@ extern WindowPlacement wpEvalGraph;
 extern WindowPlacement wpMoveHistory;
 extern WindowPlacement wpGameList;
 extern WindowPlacement wpTags;
+extern WindowPlacement wpTextMenu;
 
 #define MAXENGINES 2000
 
