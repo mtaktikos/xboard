@@ -5,7 +5,8 @@
  * Massachusetts.
  *
  * Enhancements Copyright 1992-2001, 2002, 2003, 2004, 2005, 2006,
- * 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * Enhancements Copyright 2005 Alessandro Scotti
  *
@@ -56,8 +57,8 @@
 #define GAME_FILT     "Game files (*.pgn,*.gam)\0*.pgn;*.gam\0All files (*.*)\0*.*\0"
 #define DIAGRAM_FILT  "bitmap files (*.bmp)\0*.bmp\0All files (*.*)\0*.*\0"
 #define SOUND_FILT    "Wave files (*.wav)\0*.wav\0All files (*.*)\0*.*\0"
-#define OUTER_MARGIN (tinyLayout ? 0 : 4)
-#define INNER_MARGIN (tinyLayout ? 0 : 2)
+#define OUTER_MARGIN (tinyLayout == 2 ? 0 : 4)
+#define INNER_MARGIN (tinyLayout == 2 ? 0 : 2)
 #define MESSAGE_LINE_LEFTMARGIN 2
 #define MESSAGE_TEXT_MAX 256
 /*#define COLOR_ECHOOFF RGB(192,192,192)*/
@@ -205,7 +206,7 @@
 #define BUILT_IN_SOUND_NAMES {\
   "Beepbeep", "Ching", "Click", "Cymbal", "Ding", "Drip", \
   "Gong", "Laser", "Move", "Penalty", "Phone", "Pop", "Pop2", \
-  "Slap", "Squeak", "Swish", "Thud", "Whipcrack", \
+  "Roar", "Slap", "Squeak", "Swish", "Thud", "Whipcrack", \
   "Alarm", "Challenge", "Channel", "Channel1", "Draw", "Kibitz", \
   "Lose", "Request", "Seek", "Shout", "SShout", "Tell", "Unfinished", \
   "Win", NULL \

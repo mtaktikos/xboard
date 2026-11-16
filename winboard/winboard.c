@@ -2,10 +2,11 @@
  * WinBoard.c -- Windows NT front end to XBoard
  *
  * Copyright 1991 by Digital Equipment Corporation, Maynard,
- * Massachusetts. 
+ * Massachusetts.
  *
  * Enhancements Copyright 1992-2001, 2002, 2003, 2004, 2005, 2006,
- * 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * Enhancements Copyright 2005 Alessandro Scotti
  *
@@ -54,6 +55,10 @@
  *------------------------------------------------------------------------
  ** See the file ChangeLog for a revision history.  */
 
+#ifndef WINVER
+#define WINVER 0x0500
+#endif
+
 #include "config.h"
 
 #include <windows.h>
@@ -92,6 +97,9 @@
 #include "help.h"
 #include "wsnap.h"
 
+#define SLASH '/'
+#define DATADIR "~~"
+
 //void InitEngineUCI( const char * iniDir, ChessProgramState * cps );
 
   int myrandom(void);
@@ -109,7 +117,6 @@ VOID NewVariantPopup(HWND hwnd);
 int FinishMove P((ChessMove moveType, int fromX, int fromY, int toX, int toY,
 		   /*char*/int promoChar));
 void DisplayMove P((int moveNumber));
-Boolean ParseFEN P((Board board, int *blackPlaysFirst, char *fen));
 void ChatPopUp P((char *s));
 typedef struct {
   ChessSquare piece;  
@@ -164,7 +171,7 @@ BoardSize boardSize;
 Boolean chessProgram;
 //static int boardX, boardY;
 int  minX, minY; // [HGM] placement: volatile limits on upper-left corner
-int squareSize, lineGap, minorSize, border;
+int squareSize, lineGap, minorSize;
 static int winW, winH;
 static RECT messageRect, whiteRect, blackRect, leftLogoRect, rightLogoRect; // [HGM] logo
 static int logoHeight = 0;
@@ -187,6 +194,7 @@ Boolean alwaysOnTop = FALSE;
 RECT boardRect;
 COLORREF lightSquareColor, darkSquareColor, whitePieceColor, 
   blackPieceColor, highlightSquareColor, premoveHighlightColor;
+COLORREF markerColor[8] = { 0x00FFFF, 0x0000FF, 0x00FF00, 0xFF0000, 0xFFFF00, 0xFF00FF, 0xFFFFFF, 0x000000 };
 HPALETTE hPal;
 ColorClass currentColorClass;
 
@@ -197,7 +205,7 @@ static HBITMAP pieceBitmap[3][(int) BlackPawn]; /* [HGM] nr of bitmaps referred 
 static HBRUSH lightSquareBrush, darkSquareBrush,
   blackSquareBrush, /* [HGM] for band between board and holdings */
   explodeBrush,     /* [HGM] atomic */
-  markerBrush,      /* [HGM] markers */
+  markerBrush[8],   /* [HGM] markers */
   whitePieceBrush, blackPieceBrush, iconBkgndBrush /*, outlineBrush*/;
 static POINT gridEndpoints[(BOARD_RANKS + BOARD_FILES + 2) * 2];
 static DWORD gridVertexCounts[BOARD_RANKS + BOARD_FILES + 2];
@@ -222,6 +230,7 @@ static struct { int x; int y; int mode; } backTextureSquareInfo[BOARD_RANKS][BOA
 #if __GNUC__ && !defined(_winmajor)
 #define oldDialog 0 /* cygwin doesn't define _winmajor; mingw does */
 #else
+
 #if defined(_winmajor)
 #define oldDialog (_winmajor < 4)
 #else
@@ -256,7 +265,8 @@ int dialogItems[][42] = {
 { DLG_TimeControl, IDC_Babble, OPT_TCUseMoves, OPT_TCUseInc, OPT_TCUseFixed, 
   OPT_TCtext1, OPT_TCtext2, OPT_TCitext1, OPT_TCitext2, OPT_TCftext, GPB_Factors,   IDC_Factor1, IDC_Factor2, IDOK, IDCANCEL }, 
 { DLG_LoadOptions, OPT_Autostep, OPT_AStext1, OPT_Exact, OPT_Subset, OPT_Struct, OPT_Material, OPT_Range, OPT_Difference,
-  OPT_elo1t, OPT_elo2t, OPT_datet, OPT_Stretch, OPT_Stretcht, OPT_Reversed, OPT_SearchMode, OPT_Mirror, OPT_thresholds, IDOK, IDCANCEL }, 
+  OPT_elo1t, OPT_elo2t, OPT_datet, OPT_Stretch, OPT_Stretcht, OPT_Reversed, OPT_SearchMode, OPT_Mirror, OPT_thresholds,
+  OPT_Ranget, IDOK, IDCANCEL }, 
 { DLG_SaveOptions, OPT_Autosave, OPT_AVPrompt, OPT_AVToFile, OPT_AVBrowse,
   801, OPT_PGN, OPT_Old, OPT_OutOfBookInfo, IDOK, IDCANCEL }, 
 { 1536, 1090, IDC_Directories, 1089, 1091, IDOK, IDCANCEL, 1038, IDC_IndexNr, 1037 }, 
@@ -287,7 +297,8 @@ int dialogItems[][42] = {
   OPT_AutoFlipView, OPT_ShowButtonBar, OPT_AutoRaiseBoard, OPT_ShowCoordinates,
   OPT_Blindfold, OPT_ShowThinking, OPT_HighlightDragging, OPT_TestLegality,
   OPT_SaveExtPGN, OPT_HideThinkFromHuman, OPT_ExtraInfoInMoveHistory,
-  OPT_HighlightMoveArrow, OPT_AutoLogo ,OPT_SmartMove }, 
+  OPT_HighlightMoveArrow, OPT_AutoLogo ,OPT_SmartMove, OPT_AutoTags, OPT_AutoComment,
+  OPT_Headers, OPT_Variations, OPT_AutoExtend }, 
 { DLG_IcsOptions, IDOK, IDCANCEL, OPT_AutoComment, OPT_AutoKibitz, OPT_AutoObserve,
   OPT_GetMoveList, OPT_LocalLineEditing, OPT_QuietPlay, OPT_SeekGraph, OPT_AutoRefresh,
   OPT_BgObserve, OPT_DualBoard, OPT_Premove, OPT_PremoveWhite, OPT_PremoveBlack,
@@ -305,14 +316,7 @@ int dialogItems[][42] = {
   OPT_ChooseBlackPieceColor, OPT_ChooseHighlightSquareColor, OPT_ChoosePremoveHighlightColor,
   OPT_Monochrome, OPT_AllWhite, OPT_UpsideDown, OPT_DefaultBoardColors, GPB_Colors,
   IDC_Light, IDC_Dark, IDC_White, IDC_Black, IDC_High, IDC_PreHigh, GPB_Size, OPT_Bitmaps, OPT_PieceFont, OPT_Grid }, 
-{ DLG_NewVariant, IDOK, IDCANCEL, OPT_VariantNormal, OPT_VariantFRC, OPT_VariantWildcastle,
-  OPT_VariantNocastle, OPT_VariantLosers, OPT_VariantGiveaway, OPT_VariantSuicide,
-  OPT_Variant3Check, OPT_VariantTwoKings, OPT_VariantAtomic, OPT_VariantCrazyhouse,
-  OPT_VariantBughouse, OPT_VariantTwilight, OPT_VariantShogi, OPT_VariantSuper,
-  OPT_VariantKnightmate, OPT_VariantBerolina, OPT_VariantCylinder, OPT_VariantFairy,
-  OPT_VariantMakruk, OPT_VariantGothic, OPT_VariantCapablanca, OPT_VariantJanus,
-  OPT_VariantCRC, OPT_VariantFalcon, OPT_VariantCourier, OPT_VariantGreat, OPT_VariantSChess,
-  OPT_VariantShatranj, OPT_VariantXiangqi, GPB_Variant, GPB_Board, IDC_Height,
+{ DLG_NewVariant, IDOK, IDCANCEL, GPB_Variant, GPB_Board, IDC_Height,
   IDC_Width, IDC_Hand, IDC_Pieces, IDC_Def }, 
 { DLG_Fonts, IDOK, IDCANCEL, OPT_ChooseClockFont, OPT_ChooseMessageFont,
   OPT_ChooseCoordFont, OPT_ChooseTagFont, OPT_ChooseCommentsFont,  OPT_ChooseConsoleFont, OPT_ChooseMoveHistoryFont, OPT_DefaultFonts,
@@ -361,7 +365,7 @@ LoadLanguageFile(char *name)
             if(languageBuf[n] == '"' && languageBuf[i-1] == '"') {
                 char *p;
                 if(p = strstr(languageBuf + n + 1, "\" === \"")) {
-                    if(p > languageBuf+n+2 && p+8 < languageBuf+i) {
+                    if(p > languageBuf+n+1 && p+8 < languageBuf+i) {
                         if(j >= sizeof(english)) { DisplayError("Too many translated strings", 0); return; }
                         english[j] = languageBuf + n + 1; *p = 0;
                         foreign[j++] = p + 7; languageBuf[i-1] = 0;
@@ -377,6 +381,8 @@ LoadLanguageFile(char *name)
               case 't': k = '\t'; break;
             }
             languageBuf[--i] = k;
+
+
         }
         i++;
     }
@@ -453,6 +459,7 @@ void
 TranslateMenus(int addLanguage)
 {
     int i;
+    char buf[MSG_SIZ];
     WIN32_FIND_DATA fileData;
     HANDLE hFind;
 #define IDM_English 1970
@@ -468,7 +475,8 @@ TranslateMenus(int addLanguage)
     }
 
     if(!addLanguage) return;
-    if((hFind = FindFirstFile("*.LNG", &fileData)) != INVALID_HANDLE_VALUE) {
+    snprintf(buf, MSG_SIZ, "%s%s*.LNG", appData.languageDir, *appData.languageDir ? "\\" : "");
+    if((hFind = FindFirstFile(buf, &fileData)) != INVALID_HANDLE_VALUE) {
         HMENU mainMenu = GetMenu(hwndMain);
         HMENU subMenu = GetSubMenu(mainMenu, GetMenuItemCount(mainMenu)-1);
         AppendMenu(subMenu, MF_SEPARATOR, (UINT_PTR) 0, NULL);
@@ -477,7 +485,8 @@ TranslateMenus(int addLanguage)
         do {
             char *p, *q = fileData.cFileName;
             int checkFlag = MF_UNCHECKED;
-            languageFile[i] = strdup(q);
+            snprintf(buf, MSG_SIZ, "%s%s%s", appData.languageDir, *appData.languageDir ? "\\" : "", q);
+            languageFile[i] = strdup(buf);
             if(barbaric && !strcmp(oldLanguage, q)) {
                 checkFlag = MF_CHECKED;
                 lastChecked = IDM_English + i + 1;
@@ -529,12 +538,12 @@ typedef struct {
 
 SizeInfo sizeInfo[] = 
 {
-  { "tiny",     21, 0, 1, 1, 0, 0 },
-  { "teeny",    25, 1, 1, 1, 0, 0 },
-  { "dinky",    29, 1, 1, 1, 0, 0 },
-  { "petite",   33, 1, 1, 1, 0, 0 },
-  { "slim",     37, 2, 1, 0, 0, 0 },
-  { "small",    40, 2, 1, 0, 0, 0 },
+  { "tiny",     21, 0, 1, 2, 0, 0 },
+  { "teeny",    25, 1, 1, 2, 0, 0 },
+  { "dinky",    29, 1, 1, 2, 0, 0 },
+  { "petite",   33, 1, 1, 2, 0, 0 },
+  { "slim",     37, 2, 1, 1, 0, 0 },
+  { "small",    40, 2, 1, 1, 0, 0 },
   { "mediocre", 45, 2, 1, 0, 0, 0 },
   { "middling", 49, 2, 0, 0, 0, 0 },
   { "average",  54, 2, 0, 0, 0, 0 },
@@ -582,7 +591,7 @@ typedef struct {
   WNDPROC wndproc;
 } MyButtonDesc;
 
-#define BUTTON_WIDTH (tinyLayout ? 16 : 32)
+#define BUTTON_WIDTH (tinyLayout == 2 ? 16 : 32)
 #define N_BUTTONS 5
 
 MyButtonDesc buttonDesc[N_BUTTONS] =
@@ -596,8 +605,9 @@ MyButtonDesc buttonDesc[N_BUTTONS] =
 
 int tinyLayout = 0, smallLayout = 0;
 #define MENU_BAR_ITEMS 9
-char *menuBarText[2][MENU_BAR_ITEMS+1] = {
+char *menuBarText[3][MENU_BAR_ITEMS+1] = {
   { N_("&File"), N_("&Edit"), N_("&View"), N_("&Mode"), N_("&Action"), N_("E&ngine"), N_("&Options"), N_("&Help"), NULL },
+  { N_("&Fil"), N_("&Ed"), N_("&Vw"), N_("&Mod"), N_("&Act"), N_("E&ng"), N_("&Opt"), N_("&Hlp"), NULL },
   { N_("&F"), N_("&E"), N_("&V"), N_("&M"), N_("&A"), N_("&N"), N_("&O"), N_("&H"), NULL },
 };
 
@@ -653,7 +663,7 @@ typedef struct {
   SOCKET sock2;  /* stderr socket for OpenRcmd */
 } ChildProc;
 
-#define INPUT_SOURCE_BUF_SIZE 4096
+#define INPUT_SOURCE_BUF_SIZE 10240
 
 typedef struct _InputSource {
   CPKind kind;
@@ -781,12 +791,14 @@ void ThawUI()
  *
 \*---------------------------------------------------------------------------*/
 
+static void HandleMessage P((MSG *message));
+static HANDLE hAccelMain, hAccelNoAlt, hAccelNoICS;
+
 int APIENTRY
 WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	LPSTR lpCmdLine, int nCmdShow)
 {
   MSG msg;
-  HANDLE hAccelMain, hAccelNoAlt, hAccelNoICS;
 //  INITCOMMONCONTROLSEX ex;
 
   debugFP = stderr;
@@ -818,6 +830,17 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		    0,    /* lowest message to examine */
 		    0))   /* highest message to examine */
     {
+	HandleMessage(&msg);
+    }
+
+
+  return (msg.wParam);	/* Returns the value from PostQuitMessage */
+}
+
+static void
+HandleMessage (MSG *message)
+{
+    MSG msg = *message;
 
       if(msg.message == WM_CHAR && msg.wParam == '\t') {
 	// [HGM] navigate: switch between all windows with tab
@@ -885,7 +908,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	  if(currentElement < 5 && IsIconic(hwndMain))    ShowWindow(hwndMain, SW_RESTORE); // all open together
 	  SetFocus(h);
 
-	  continue; // this message now has been processed
+	  return; // this message now has been processed
 	}
       }
 
@@ -904,14 +927,24 @@ WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	    if(chatHandle[i] && IsDialogMessage(chatHandle[i], &msg)) {
 		done = 1; break;
 	}
-	if(done) continue; // [HGM] chat: end patch
+	if(done) return; // [HGM] chat: end patch
 	TranslateMessage(&msg);	/* Translates virtual key codes */
 	DispatchMessage(&msg);	/* Dispatches message to window */
       }
+}
+
+void
+DoEvents ()
+{ /* Dispatch pending messages */
+  MSG msg;
+  while (PeekMessage(&msg, /* message structure */
+		     NULL, /* handle of window receiving the message */
+		     0,    /* lowest message to examine */
+		     0,    /* highest message to examine */
+		     PM_REMOVE))
+    {
+	HandleMessage(&msg);
     }
-
-
-  return (msg.wParam);	/* Returns the value from PostQuitMessage */
 }
 
 /*---------------------------------------------------------------------------*\
@@ -980,16 +1013,17 @@ InitApplication(HINSTANCE hInstance)
 
 /* Set by InitInstance, used by EnsureOnScreen */
 int screenHeight, screenWidth;
+RECT screenGeometry;
 
 void
 EnsureOnScreen(int *x, int *y, int minX, int minY)
 {
 //  int gap = GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION);
   /* Be sure window at (x,y) is not off screen (or even mostly off screen) */
-  if (*x > screenWidth - 32) *x = 0;
-  if (*y > screenHeight - 32) *y = 0;
-  if (*x < minX) *x = minX;
-  if (*y < minY) *y = minY;
+  if (*x > screenGeometry.right - 32) *x = screenGeometry.left;
+  if (*y > screenGeometry.bottom - 32) *y = screenGeometry.top;
+  if (*x < screenGeometry.left + minX) *x = screenGeometry.left + minX;
+  if (*y < screenGeometry.top + minY) *y = screenGeometry.top + minY;
 }
 
 VOID
@@ -1050,6 +1084,34 @@ InitTextures()
   }
 }
 
+#ifndef SM_CXVIRTUALSCREEN
+#define SM_CXVIRTUALSCREEN 78
+#endif
+#ifndef SM_CYVIRTUALSCREEN
+#define SM_CYVIRTUALSCREEN 79
+#endif
+#ifndef SM_XVIRTUALSCREEN 
+#define SM_XVIRTUALSCREEN 76
+#endif
+#ifndef SM_YVIRTUALSCREEN 
+#define SM_YVIRTUALSCREEN 77
+#endif
+
+VOID
+InitGeometry()
+{
+  screenHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+  if( !screenHeight ) screenHeight = GetSystemMetrics(SM_CYSCREEN);
+  screenWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+  if( !screenWidth ) screenWidth = GetSystemMetrics(SM_CXSCREEN);
+  screenGeometry.left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+  screenGeometry.top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+  screenGeometry.right = screenGeometry.left + screenWidth;
+  screenGeometry.bottom = screenGeometry.top + screenHeight;
+}
+
+ChessProgramState broadcast;
+
 BOOL
 InitInstance(HINSTANCE hInstance, int nCmdShow, LPSTR lpCmdLine)
 {
@@ -1068,7 +1130,7 @@ InitInstance(HINSTANCE hInstance, int nCmdShow, LPSTR lpCmdLine)
     GetCurrentDirectory(MSG_SIZ, installDir);
   }
   gameInfo.boardWidth = gameInfo.boardHeight = 8; // [HGM] won't have open window otherwise
-  screenWidth = screenHeight = 1000; // [HGM] placement: kludge to allow calling EnsureOnScreen from InitAppData
+  InitGeometry();
   InitAppData(lpCmdLine);      /* Get run-time parameters */
   /* xboard, and older WinBoards, controlled the move sound with the
      appData.ringBellAfterMoves option.  In the current WinBoard, we
@@ -1082,7 +1144,18 @@ InitInstance(HINSTANCE hInstance, int nCmdShow, LPSTR lpCmdLine)
     appData.ringBellAfterMoves = TRUE;
   }
   if (appData.debugMode) {
-    debugFP = fopen(appData.nameOfDebugFile, "w");
+    char *c = appData.nameOfDebugFile;
+    if(strstr(c, "///") == c) {
+      broadcast.which = "broadcaster";
+      broadcast.pr   = NoProc;
+      broadcast.isr  = NULL;
+      broadcast.program = c + 3;
+      broadcast.dir  = ".";
+      broadcast.host = "localhost";
+      StartChessProgram(&broadcast);
+      debugFP = (FILE*) _fdopen(_open_osfhandle((long)(((ChildProc*)(broadcast.pr))->hTo), _O_WRONLY), "w");
+    } else
+    debugFP = fopen(c, "w");
     setbuf(debugFP, NULL);
   }
 
@@ -1115,8 +1188,8 @@ InitInstance(HINSTANCE hInstance, int nCmdShow, LPSTR lpCmdLine)
   iconBlack = LoadIcon(hInstance, "icon_black");
   iconCurrent = iconWhite;
   InitDrawingColors();
-  screenHeight = GetSystemMetrics(SM_CYSCREEN);
-  screenWidth = GetSystemMetrics(SM_CXSCREEN);
+
+  InitPosition(0); // to set nr of ranks and files, which might be non-default through command-line args
   for (ibs = (int) NUM_SIZES - 1; ibs >= 0; ibs--) {
     /* Compute window size for each board size, and use the largest
        size that fits on this screen as the default. */
@@ -1196,6 +1269,7 @@ InitMenuChecks()
   (void) CheckMenuItem(hmenu, IDM_SaveSettingsOnExit,
 		       MF_BYCOMMAND|(saveSettingsOnExit ?
 				     MF_CHECKED : MF_UNCHECKED));
+  EnableMenuItem(hmenu, IDM_SaveSelected, MF_GRAYED);
 }
 
 //---------------------------------------------------------------------------------------------------------
@@ -1226,6 +1300,9 @@ LFfromMFP(LOGFONT* lf, MyFontParams *mfp)
   lf->lfStrikeOut = mfp->strikeout;
   lf->lfCharSet = mfp->charset;
   lf->lfOutPrecision = OUT_DEFAULT_PRECIS;
+
+
+
   lf->lfClipPrecision = CLIP_DEFAULT_PRECIS;
   lf->lfQuality = DEFAULT_QUALITY;
   lf->lfPitchAndFamily = DEFAULT_PITCH|FF_DONTCARE;
@@ -1779,6 +1856,8 @@ static void CreatePieceMaskFromFont( HDC hdc_window, HDC hdc, int index )
     COLORREF chroma = RGB(0xFF,0x00,0xFF);
     RECT rc;
     SIZE sz;
+
+
     POINT pt;
     int backColor = whitePieceColor; 
     int foreColor = blackPieceColor;
@@ -1988,6 +2067,11 @@ static int TranslatePieceToFontPiece( int piece )
     case WhiteSilver:
         return PM_WSG;
     case WhiteLance:
+
+
+
+
+
         return PM_WL;
     case WhiteFalcon:
         return PM_WV;
@@ -2117,7 +2201,7 @@ void CreatePiecesFromFont()
 HBITMAP
 DoLoadBitmap(HINSTANCE hinst, char *piece, int squareSize, char *suffix)
 {
-  char name[128], buf[MSG_SIZ];
+  char name[128], buf[MSG_SIZ], *ids = "pnbrqfeicwmohajgdvlsukaacvdklnwpwnwlwswolfgnuzebracameltowersword", *p;
 
     snprintf(name, sizeof(name)/sizeof(name[0]), "%s%d%s", piece, squareSize, suffix);
   if(appData.pieceDirectory[0]) {
@@ -2125,6 +2209,30 @@ DoLoadBitmap(HINSTANCE hinst, char *piece, int squareSize, char *suffix)
     snprintf(buf, MSG_SIZ, "%s\\%s.bmp", appData.pieceDirectory, name);
     res = LoadImage( 0, buf, IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE );
     if(res) return res;
+    p = strstr(ids, piece);
+    if(p) { // if we could reconstruct canonical piece number, try the pieceNNN_ format before falling back on built-ins
+      int n = p - ids;
+      switch(n) {
+	case 21: n = WhiteKing; break;
+	case 22: n = WhiteAngel; break;
+	case 24: n = WhiteSilver; break;
+	case 26: n = WhiteDragon; break;
+	case 28: n = WhiteLion; break;
+	case 30: n = WhiteTokin; break;
+	case 32: n = WhitePKnight; break;
+	case 34: n = WhitePLance; break;
+	case 36: n = WhitePSilver; break;
+	case 38: n = WhiteWolf; break;
+	case 42: n = WhiteGnu; break;
+	case 45: n = WhiteZebra; break;
+	case 50: n = WhiteCamel; break;
+	case 55: n = WhiteTower; break;
+	case 60: n = WhiteSword; break;
+      }
+      snprintf(buf, MSG_SIZ, "%s\\piece%d_%d%s.bmp", appData.pieceDirectory, n, squareSize, suffix);
+      res = LoadImage( 0, buf, IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE );
+      if(res) return res;
+    }
   }
   if (gameInfo.event &&
       strcmp(gameInfo.event, "Easter Egg Hunt") == 0 &&
@@ -2162,6 +2270,7 @@ InsertInPalette(COLORREF color)
 VOID
 InitDrawingColors()
 {
+  int i;
   if (pLogPal == NULL) {
     /* Allocate enough memory for a logical palette with
      * PALETTESIZE entries and set the size and version fields
@@ -2193,8 +2302,9 @@ InitDrawingColors()
   blackPieceBrush = CreateSolidBrush(blackPieceColor);
   iconBkgndBrush = CreateSolidBrush(GetSysColor(COLOR_BACKGROUND));
   explodeBrush = CreateSolidBrush(highlightSquareColor); // [HGM] atomic
-  markerBrush = CreateSolidBrush(premoveHighlightColor); // [HGM] markers
-  /* [AS] Force rendering of the font-based pieces */
+    for(i=0; i<8;i++) markerBrush[i] = CreateSolidBrush(markerColor[i]); // [HGM] markers
+
+   /* [AS] Force rendering of the font-based pieces */
   if( fontBitmapSquareSize > 0 ) {
     fontBitmapSquareSize = 0;
   }
@@ -2234,7 +2344,7 @@ ResizeBoard(int newSizeX, int newSizeY, int flags)
   recurse--;
 }
 
-
+static HBITMAP ducky;
 extern Boolean twoBoards, partnerUp; // [HGM] dual
 
 VOID
@@ -2259,21 +2369,26 @@ InitDrawingSizes(BoardSize boardSize, int flags)
 
   /* [HGM] call with -2 uses old size (for if nr of files, ranks changes) */
   if(boardSize == (BoardSize)(-2) ) boardSize = oldBoardSize;
+  if(boardSize == -1) return;     // no size defined yet; abort (to allow early call of InitPosition)
   oldBoardSize = boardSize;
 
   if(boardSize != SizeMiddling && boardSize != SizePetite && boardSize != SizeBulky && !appData.useFont)
   { // correct board size to one where built-in pieces exist
+    int fairies = 0;
+    for(i=WhiteQueen+1; i<WhiteKing; i++) fairies += (PieceToChar(i) != '.' || PieceToChar(WHITE_TO_BLACK i) != '.');
     if((v == VariantCapablanca || v == VariantGothic || v == VariantGrand || v == VariantCapaRandom || v == VariantJanus || v == VariantSuper)
        && (boardSize < SizePetite || boardSize > SizeBulky) // Archbishop and Chancellor available in entire middle range
+
       || (v == VariantShogi && boardSize != SizeModerate)   // Japanese-style Shogi
       ||  v == VariantKnightmate || v == VariantSChess || v == VariantXiangqi || v == VariantSpartan
-      ||  v == VariantShatranj || v == VariantMakruk || v == VariantGreat || v == VariantFairy ) {
+      ||  v == VariantShatranj || v == VariantMakruk || v == VariantGreat|| v == VariantLion ||
+          v == VariantJanggi || v == VariantFairy && fairies ) {
       if(boardSize < SizeMediocre) boardSize = SizePetite; else
       if(boardSize > SizeModerate) boardSize = SizeBulky;  else
                                    boardSize = SizeMiddling;
     }
   }
-  if(!appData.useFont && boardSize == SizePetite && (v == VariantShogi || v == VariantKnightmate)) boardSize = SizeMiddling; // no Unicorn in Petite
+  if(!appData.useFont && boardSize == SizePetite && (v == VariantKnightmate)) boardSize = SizeMiddling; // no Unicorn in Petite
 
   oldRect.left = wpMain.x; //[HGM] placement: remember previous window params
   oldRect.top = wpMain.y;
@@ -2287,13 +2402,17 @@ InitDrawingSizes(BoardSize boardSize, int flags)
   minorSize = 0; /* [HGM] Kludge to see if demagnified pieces need to be shifted  */
   border = appData.useBorder && appData.border[0] ? squareSize/2 : 0;
 
+  // [HGM] decide on tininess based on total board width rather than square size
+  tinyLayout = squareSize * (BOARD_WIDTH);
+  tinyLayout = tinyLayout < 35*8 ? 2 : tinyLayout < 43*8 ? 1 : 0;
+
   if( appData.overrideLineGap >= 0 && appData.overrideLineGap <= 5 ) {
       lineGap = appData.overrideLineGap;
   }
 
   if (tinyLayout != oldTinyLayout) {
     long style = GetWindowLongPtr(hwndMain, GWL_STYLE);
-    if (tinyLayout) {
+    if (tinyLayout == 2) {
       style &= ~WS_SYSMENU;
       InsertMenu(hmenu, IDM_Exit, MF_BYCOMMAND, IDM_Minimize,
 		 "&Minimize\tCtrl+F4");
@@ -2329,7 +2448,7 @@ InitDrawingSizes(BoardSize boardSize, int flags)
   ReleaseDC(hwndMain, hdc);
 
   /* Compute where everything goes */
-  if((first.programLogo || second.programLogo) && !tinyLayout) {
+  if((first.programLogo || second.programLogo) && tinyLayout != 2) {
         /* [HGM] logo: if either logo is on, reserve space for it */
 	logoHeight =  2*clockSize.cy;
 	leftLogoRect.left   = OUTER_MARGIN;
@@ -2450,7 +2569,7 @@ InitDrawingSizes(BoardSize boardSize, int flags)
 		     messageRect.top, BUTTON_WIDTH, messageSize.cy, hwndMain,
 		     (HMENU) buttonDesc[i].id,
 		     (HINSTANCE) GetWindowLongPtr(hwndMain, GWLP_HINSTANCE), NULL);
-      if (tinyLayout) {
+      if (tinyLayout == 2) {
 	SendMessage(buttonDesc[i].hwnd, WM_SETFONT, 
 		    (WPARAM)font[boardSize][MESSAGE_FONT]->hf,
 		    MAKELPARAM(FALSE, 0));
@@ -2519,10 +2638,12 @@ InitDrawingSizes(BoardSize boardSize, int flags)
 	 piece = (ChessSquare) ((int) piece + 1)) {
       if (pieceBitmap[i][piece] != NULL)
 	DeleteObject(pieceBitmap[i][piece]);
+      pieceBitmap[i][piece] = NULL;
     }
   }
 
   fontBitmapSquareSize = 0; /* [HGM] render: make sure pieces will be recreated, as we might need others now */
+
   // Orthodox Chess pieces
   pieceBitmap[0][WhitePawn] = DoLoadBitmap(hInst, "p", squareSize, "s");
   pieceBitmap[0][WhiteKnight] = DoLoadBitmap(hInst, "n", squareSize, "s");
@@ -2620,11 +2741,39 @@ InitDrawingSizes(BoardSize boardSize, int flags)
     pieceBitmap[0][WhiteLance] = DoLoadBitmap(hInst, "l", squareSize, "s");
     pieceBitmap[1][WhiteLance] = DoLoadBitmap(hInst, "l", squareSize, "o");
     pieceBitmap[2][WhiteLance] = DoLoadBitmap(hInst, "l", squareSize, "w");
+    pieceBitmap[0][WhiteAmazon] = DoLoadBitmap(hInst, "l", squareSize, "s");
+    pieceBitmap[1][WhiteAmazon] = DoLoadBitmap(hInst, "l", squareSize, "o");
+    pieceBitmap[2][WhiteAmazon] = DoLoadBitmap(hInst, "l", squareSize, "w");
     pieceBitmap[0][WhiteUnicorn] = DoLoadBitmap(hInst, "u", squareSize, "s");
     pieceBitmap[1][WhiteUnicorn] = DoLoadBitmap(hInst, "u", squareSize, "o");
     pieceBitmap[2][WhiteUnicorn] = DoLoadBitmap(hInst, "u", squareSize, "w");
+    pieceBitmap[0][WhiteLion] = DoLoadBitmap(hInst, "ln", squareSize, "s");
+    pieceBitmap[1][WhiteLion] = DoLoadBitmap(hInst, "ln", squareSize, "o");
+    pieceBitmap[2][WhiteLion] = DoLoadBitmap(hInst, "ln", squareSize, "w");
+    pieceBitmap[0][WhiteCub] = DoLoadBitmap(hInst, "ln", squareSize, "s");
+    pieceBitmap[1][WhiteCub] = DoLoadBitmap(hInst, "ln", squareSize, "o");
+    pieceBitmap[2][WhiteCub] = DoLoadBitmap(hInst, "ln", squareSize, "w");
+    pieceBitmap[0][WhiteWolf] = DoLoadBitmap(hInst, "wolf", squareSize, "s");
+    pieceBitmap[1][WhiteWolf] = DoLoadBitmap(hInst, "wolf", squareSize, "o");
+    pieceBitmap[2][WhiteWolf] = DoLoadBitmap(hInst, "wolf", squareSize, "w");
+    pieceBitmap[0][WhiteCamel] = DoLoadBitmap(hInst, "camel", squareSize, "s");
+    pieceBitmap[1][WhiteCamel] = DoLoadBitmap(hInst, "camel", squareSize, "o");
+    pieceBitmap[2][WhiteCamel] = DoLoadBitmap(hInst, "camel", squareSize, "w");
+    pieceBitmap[0][WhiteZebra] = DoLoadBitmap(hInst, "zebra", squareSize, "s");
+    pieceBitmap[1][WhiteZebra] = DoLoadBitmap(hInst, "zebra", squareSize, "o");
+    pieceBitmap[2][WhiteZebra] = DoLoadBitmap(hInst, "n", squareSize, "w");
+    pieceBitmap[0][WhiteTower] = DoLoadBitmap(hInst, "tower", squareSize, "s");
+    pieceBitmap[1][WhiteTower] = DoLoadBitmap(hInst, "tower", squareSize, "o");
+    pieceBitmap[2][WhiteTower] = DoLoadBitmap(hInst, "tower", squareSize, "w");
+    pieceBitmap[0][WhiteSword] = DoLoadBitmap(hInst, "sword", squareSize, "s");
+    pieceBitmap[1][WhiteSword] = DoLoadBitmap(hInst, "sword", squareSize, "o");
+    pieceBitmap[2][WhiteSword] = DoLoadBitmap(hInst, "sword", squareSize, "w");
+    pieceBitmap[0][WhiteGnu] = DoLoadBitmap(hInst, "gnu", squareSize, "s");
+    pieceBitmap[1][WhiteGnu] = DoLoadBitmap(hInst, "gnu", squareSize, "o");
+    pieceBitmap[2][WhiteGnu] = DoLoadBitmap(hInst, "gnu", squareSize, "w");
+    if(gameInfo.variant == VariantDuck) { char name[20]; sprintf(name, "ducky%d", squareSize); ducky = LoadBitmap(hInst, name); }
 
-    if(gameInfo.variant == VariantShogi) { /* promoted Gold represemtations */
+    if(gameInfo.variant == VariantShogi && BOARD_HEIGHT != 7) { /* promoted Gold representations (but not in Tori!)*/
       pieceBitmap[0][WhiteCannon] = DoLoadBitmap(hInst, "wp", squareSize, "s");
       pieceBitmap[1][WhiteCannon] = DoLoadBitmap(hInst, "wp", squareSize, "o");
       pieceBitmap[2][WhiteCannon] = DoLoadBitmap(hInst, "w", squareSize, "w");
@@ -2723,6 +2872,15 @@ InitDrawingSizes(BoardSize boardSize, int flags)
   pieceBitmap[2][WhiteGrasshopper] = DoLoadBitmap(hInst, "sl", squareSize, "w");
   pieceBitmap[2][WhiteSilver] = DoLoadBitmap(hInst, "sw", squareSize, "w");
   minorSize = 0;
+  }
+
+  if(appData.pieceDirectory[0]) for(i=WhitePawn; i<BlackPawn; i++) { // try for all missing pieces with new naming convention
+    char buf[MSG_SIZ];
+    if(pieceBitmap[0][i]) continue;
+    snprintf(buf, MSG_SIZ, "piece%d_", i);
+    pieceBitmap[0][i] = DoLoadBitmap(hInst, buf, squareSize, "s");
+    pieceBitmap[1][i] = DoLoadBitmap(hInst, buf, squareSize, "o");
+    pieceBitmap[2][i] = DoLoadBitmap(hInst, buf, squareSize, "w");
   }
 }
 
@@ -2870,7 +3028,7 @@ VOID
 DrawPieceOnDC(HDC hdc, ChessSquare piece, int color, int sqcolor, int x, int y, HDC tmphdc)
 {
   HBITMAP oldBitmap;
-  HBRUSH oldBrush;
+  HBRUSH oldBrush = NULL;
   int tmpSize;
 
   if (appData.blindfold) return;
@@ -2929,6 +3087,20 @@ DrawPieceOnDC(HDC hdc, ChessSquare piece, int color, int sqcolor, int x, int y, 
       y += squareSize - minorSize - 2;
       tmpSize = minorSize;
     }
+#if WINVER >= 0x0500
+    HBITMAP pbm = PieceBitmap(piece, color ? OUTLINE_PIECE : SOLID_PIECE);
+    BITMAP b;
+    GetObject(pbm, sizeof(BITMAP), &b);
+    if(b.bmBitsPixel == 32) { // for now this is a kludge to indicate bitmaps with alpha channel
+	BLENDFUNCTION bf;
+	bf.BlendOp = AC_SRC_OVER;
+	bf.BlendFlags = 0;
+	bf.SourceConstantAlpha = 0xFF;
+	bf.AlphaFormat = AC_SRC_ALPHA;
+	oldBitmap = SelectObject(tmphdc, pbm);
+	AlphaBlend(hdc, x, y, tmpSize, tmpSize, tmphdc, 0, 0, tmpSize, tmpSize, bf);
+    } else
+#endif
     if (color || appData.allWhite ) {
       oldBitmap = SelectObject(tmphdc, PieceBitmap(piece, WHITE_PIECE));
       if( color )
@@ -2965,7 +3137,7 @@ DrawPieceOnDC(HDC hdc, ChessSquare piece, int color, int sqcolor, int x, int y, 
       else
         BitBlt(hdc, x, y, tmpSize, tmpSize, tmphdc, 0, 0, 0x00B8074A);
     }
-    SelectObject(hdc, oldBrush);
+    if(oldBrush) SelectObject(hdc, oldBrush);
     SelectObject(tmphdc, oldBitmap);
   }
 }
@@ -3244,6 +3416,9 @@ BOOL HasHighlightInfo()
     }
 
     return result;
+
+
+
 }
 
 BOOL IsDrawArrowEnabled()
@@ -3406,7 +3581,7 @@ DrawBoardOnDC(HDC hdc, Board board, HDC tmphdc)
       piece = board[row][column];
 
       square_color = ((column + row) % 2) == 1;
-      if( gameInfo.variant == VariantXiangqi ) {
+      if( gameInfo.variant == VariantXiangqi|| gameInfo.variant == VariantJanggi ) {
           square_color = !InPalace(row, column);
           if(BOARD_HEIGHT&1) { if(row==BOARD_HEIGHT/2) square_color ^= 1; }
           else if(row < BOARD_HEIGHT/2) square_color ^= 1;
@@ -3433,9 +3608,15 @@ DrawBoardOnDC(HDC hdc, Board board, HDC tmphdc)
       }
       if(column == BOARD_LEFT-1 ) /* left align */
             DisplayHoldingsCount(hdc, x, y, flipView, (int) board[row][column]);
-      else if( column == BOARD_RGHT) /* right align */
+      else if( column == BOARD_RGHT) /* right align */squareSize, 
             DisplayHoldingsCount(hdc, x, y, !flipView, (int) board[row][column]);
-      else
+      else if( piece == DarkSquare) {
+            if(gameInfo.variant == VariantDuck && ducky) {
+                 HBITMAP oldBitmap = SelectObject(tmphdc, ducky);
+                 BitBlt( hdc, x, y, squareSize, squareSize, tmphdc, 0, 0, SRCPAINT );
+                 SelectObject(tmphdc, oldBitmap);
+            } else DisplayHoldingsCount(hdc, x, y, 0, 0);
+      } else
       if (appData.monoMode) {
         if (piece == EmptySquare) {
           BitBlt(hdc, x, y, squareSize, squareSize, 0, 0, 0,
@@ -3617,7 +3798,7 @@ void DrawSeekDot(int x, int y, int color)
 {
 	int square = color & 0x80;
 	HBRUSH oldBrush = SelectObject(hdcSeek, 
-			color == 0 ? markerBrush : color == 1 ? darkSquareBrush : explodeBrush);
+			color == 0 ? markerBrush[1] : color == 1 ? darkSquareBrush : explodeBrush);
 	color &= 0x7F;
 	if(square)
 	    Rectangle(hdcSeek, boardRect.left+x - squareSize/9, boardRect.top+y - squareSize/9,
@@ -3635,6 +3816,10 @@ void DrawSeekOpen()
 void DrawSeekClose()
 {
 }
+
+
+
+
 
 VOID
 HDCDrawPosition(HDC hdc, BOOLEAN repaint, Board board)
@@ -3856,6 +4041,7 @@ HDCDrawPosition(HDC hdc, BOOLEAN repaint, Board board)
 	 explodes.  The old and new positions both had an empty square
 	 at the destination, but animation has drawn a piece there and
 	 we have to remember to erase it. [HGM] moved until after setting lastDrawn */
+
       lastDrawn[0][animInfo.to.y][animInfo.to.x] = animInfo.piece;
     }
   }
@@ -3910,8 +4096,7 @@ HDCDrawPosition(HDC hdc, BOOLEAN repaint, Board board)
   for (row = 0; row < BOARD_HEIGHT; row++) {
     for (column = 0; column < BOARD_WIDTH; column++) {
 	if (marker[row][column]) { // marker changes only occur with full repaint!
-	    HBRUSH oldBrush = SelectObject(hdcmem, 
-			marker[row][column] == 2 ? markerBrush : explodeBrush);
+	    HBRUSH oldBrush = SelectObject(hdcmem, markerBrush[marker[row][column]-1]);
 	    SquareToPos(row, column, &x, &y);
 	    Ellipse(hdcmem, x + squareSize/4, y + squareSize/4,
 		  	  x + 3*squareSize/4, y + 3*squareSize/4);
@@ -3921,6 +4106,7 @@ HDCDrawPosition(HDC hdc, BOOLEAN repaint, Board board)
   }
 
   if( appData.highlightMoveWithArrow ) {
+
     DrawArrowHighlight(hdcmem);
   }
 
@@ -3937,6 +4123,7 @@ HDCDrawPosition(HDC hdc, BOOLEAN repaint, Board board)
     else
     if(dragInfo.from.x == BOARD_RGHT+1 )
                  board[dragInfo.from.y][dragInfo.from.x-1]++;
+
     board[dragInfo.from.y][dragInfo.from.x] = dragged_piece;
     x = dragInfo.pos.x - squareSize / 2;
     y = dragInfo.pos.y - squareSize / 2;
@@ -3988,7 +4175,12 @@ HDCDrawPosition(HDC hdc, BOOLEAN repaint, Board board)
   if(saveDiagFlag) { 
     BITMAP b; int i, j=0, m, w, wb, fac=0; char *pData; 
     BITMAPINFOHEADER bih; int color[16], nrColors=0;
+    HBITMAP src = bufferBitmap, obmp; HDC tmp = CreateCompatibleDC(hdc);
 
+    bufferBitmap = CreateCompatibleBitmap(hdc, boardRect.right-boardRect.left, Rect.bottom-Rect.top-2*OUTER_MARGIN);
+    obmp = SelectObject(tmp, bufferBitmap);
+    BitBlt(tmp, 0, 0, boardRect.right - boardRect.left, Rect.bottom - Rect.top - 2*OUTER_MARGIN,
+           tmphdc, boardRect.left, OUTER_MARGIN, SRCCOPY);
     GetObject(bufferBitmap, sizeof(b), &b);
     if(pData = malloc(b.bmWidthBytes*b.bmHeight + 10000)) {
 	bih.biSize = sizeof(BITMAPINFOHEADER);
@@ -4052,10 +4244,14 @@ HDCDrawPosition(HDC hdc, BOOLEAN repaint, Board board)
 	if(fac)
 	for(i=0; i<16; i++) fputDW(diagFile, color[i]);
 	// write bitmap data
+
 	for(i=0; i<wb*(b.bmHeight - boardRect.top + OUTER_MARGIN); i++) 
 		fputc(pData[i], diagFile);
 	free(pData);
      }
+     DeleteObject(bufferBitmap); bufferBitmap = src;
+     SelectObject(tmp, obmp);
+     DeleteDC(tmp);
   }
 
   SelectObject(tmphdc, oldBitmap);
@@ -4267,8 +4463,10 @@ MouseEvent(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
       } else if (PtInRect((LPRECT) &blackRect, pt)) {
 	ClockClick(!flipClock); break;
       }
+    if(dragging) { // [HGM] lion: don't destroy dragging info if we are already dragging
       dragInfo.start.x = dragInfo.start.y = -1;
       dragInfo.from = dragInfo.start;
+    }
     if(fromX == -1 && frozen) { // not sure where this is for
 		fromX = fromY = -1; 
       DrawPosition(forceFullRepaint || FALSE, NULL); /* [AS] */
@@ -4288,7 +4486,7 @@ MouseEvent(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     if(PromoScroll(pt.x - boardRect.left, pt.y - boardRect.top)) break;
     MovePV(pt.x - boardRect.left, pt.y - boardRect.top, boardRect.bottom - boardRect.top);
     if ((appData.animateDragging || appData.highlightDragging)
-	&& (wParam & MK_LBUTTON)
+	&& (wParam & MK_LBUTTON || dragging == 2)
 	&& dragInfo.from.x >= 0) 
     {
       BOOL full_repaint = FALSE;
@@ -4297,7 +4495,7 @@ MouseEvent(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 	dragInfo.pos = pt;
       }
       if (appData.highlightDragging) {
-	SetHighlights(fromX, fromY, x, y);
+	HoverEvent(highlightInfo.sq[1].x, highlightInfo.sq[1].y, x, y);
         if( IsDrawArrowEnabled() && (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) ) {
             full_repaint = TRUE;
         }
@@ -4432,13 +4630,17 @@ ButtonProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
   return CallWindowProc(buttonDesc[i].wndproc, hwnd, message, wParam, lParam);
 }
 
+static int promoStyle;
+
 /* Process messages for Promotion dialog box */
 LRESULT CALLBACK
 Promotion(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
+
   char promoChar;
 
   switch (message) {
+
   case WM_INITDIALOG: /* message: initialize dialog box */
     /* Center the dialog over the application window */
     CenterWindow(hDlg, GetWindow(hDlg, GW_OWNER));
@@ -4462,13 +4664,9 @@ Promotion(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
          PieceToChar(BlackMarshall) != '~')   ) ?
 	       SW_SHOW : SW_HIDE);
     /* [HGM] Hide B & R button in Shogi, use Q as promote, N as defer */
-    ShowWindow(GetDlgItem(hDlg, PB_Rook),
-       gameInfo.variant != VariantShogi ?
-	       SW_SHOW : SW_HIDE);
-    ShowWindow(GetDlgItem(hDlg, PB_Bishop), 
-       gameInfo.variant != VariantShogi ?
-	       SW_SHOW : SW_HIDE);
-    if(gameInfo.variant == VariantShogi) {
+    ShowWindow(GetDlgItem(hDlg, PB_Rook),   !promoStyle ? SW_SHOW : SW_HIDE);
+    ShowWindow(GetDlgItem(hDlg, PB_Bishop), !promoStyle ? SW_SHOW : SW_HIDE);
+    if(promoStyle) {
         SetDlgItemText(hDlg, PB_Queen, "YES");
         SetDlgItemText(hDlg, PB_Knight, "NO");
         SetWindowText(hDlg, "Promote?");
@@ -4489,7 +4687,7 @@ Promotion(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
       promoChar = gameInfo.variant == VariantSuper ? PieceToChar(BlackSilver) : PieceToChar(BlackKing);
       break;
     case PB_Queen:
-      promoChar = gameInfo.variant == VariantShogi ? '+' : ToLower(PieceToChar(WhiteOnMove(currentMove) ? WhiteQueen : BlackQueen));
+      promoChar = promoStyle ? '+' : ToLower(PieceToChar(WhiteOnMove(currentMove) ? WhiteQueen : BlackQueen));
       break;
     case PB_Rook:
       promoChar = ToLower(PieceToChar(WhiteOnMove(currentMove) ? WhiteRook : BlackRook));
@@ -4506,7 +4704,8 @@ Promotion(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
       promoChar = ToLower(PieceToChar(WhiteOnMove(currentMove) ? WhiteAngel : BlackAngel));
       break;
     case PB_Knight:
-      promoChar = gameInfo.variant == VariantShogi ? '=' : PieceToChar(WhiteOnMove(currentMove) ? WhiteKnight : BlackKnight);
+      promoChar = gameInfo.variant == VariantShogi ? '=' : promoStyle ? NULLCHAR : 
+                  ToLower(PieceToChar(WhiteOnMove(currentMove) ? WhiteKnight : BlackKnight));
       break;
     default:
       return FALSE;
@@ -4537,8 +4736,9 @@ PromotionPopup(HWND hwnd)
 }
 
 void
-PromotionPopUp()
+PromotionPopUp(char choice)
 {
+  promoStyle = (choice == '+' || IS_SHOGI(gameInfo.variant));
   DrawPosition(TRUE, NULL);
   PromotionPopup(hwndMain);
 }
@@ -4548,11 +4748,13 @@ LoadGameDialog(HWND hwnd, char* title)
 {
   UINT number = 0;
   FILE *f;
-  char fileTitle[MSG_SIZ];
+  char fileTitle[MSG_SIZ], dir[MSG_SIZ];
+  GetCurrentDirectory(MSG_SIZ, dir);
   f = OpenFileDialog(hwnd, "rb", "",
  	             appData.oldSaveStyle ? "gam" : "pgn",
 		     GAME_FILT,
 		     title, &number, fileTitle, NULL);
+  SetCurrentDirectory(dir);
   if (f != NULL) {
     cmailMsgLoaded = FALSE;
     if (number == 0) {
@@ -4676,11 +4878,11 @@ LRESULT CALLBACK
 WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
   FARPROC lpProc;
-  int wmId, wmEvent;
+  int wmId;
   char *defName;
   FILE *f;
   UINT number;
-  char fileTitle[MSG_SIZ];
+  char fileTitle[MSG_SIZ], dir[MSG_SIZ];
   static SnapData sd;
   static int peek=0;
 
@@ -4755,6 +4957,7 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
       nnew = RealizePalette(hdc);
       if (nnew > 0) {
 	paletteChanged = TRUE;
+
         InvalidateRect(hwnd, &boardRect, FALSE);
       }
       ReleaseDC(hwnd, hdc);
@@ -4778,7 +4981,6 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
   case WM_COMMAND: /* message: command from application menu */
     wmId    = LOWORD(wParam);
-    wmEvent = HIWORD(wParam);
 
     switch (wmId) {
     case IDM_NewGame:
@@ -4817,10 +5019,12 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
         Reset(FALSE, TRUE);
       }
       number = 1;
+      GetCurrentDirectory(MSG_SIZ, dir);
       f = OpenFileDialog(hwnd, "rb", "",
 			 appData.oldSaveStyle ? "pos" : "fen",
 			 POSITION_FILT,
 			 _("Load Position from File"), &number, fileTitle, NULL);
+      SetCurrentDirectory(dir);
       if (f != NULL) {
 	LoadPosition(f, number, fileTitle);
       }
@@ -4840,10 +5044,12 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case IDM_SaveGame:
       defName = DefaultFileName(appData.oldSaveStyle ? "gam" : "pgn");
+      GetCurrentDirectory(MSG_SIZ, dir);
       f = OpenFileDialog(hwnd, "a", defName,
 			 appData.oldSaveStyle ? "gam" : "pgn",
 			 GAME_FILT,
 			 _("Save Game to File"), NULL, fileTitle, NULL);
+      SetCurrentDirectory(dir);
       if (f != NULL) {
 	SaveGame(f, 0, "");
       }
@@ -4851,10 +5057,12 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case IDM_SavePosition:
       defName = DefaultFileName(appData.oldSaveStyle ? "pos" : "fen");
+      GetCurrentDirectory(MSG_SIZ, dir);
       f = OpenFileDialog(hwnd, "a", defName,
 			 appData.oldSaveStyle ? "pos" : "fen",
 			 POSITION_FILT,
 			 _("Save Position to File"), NULL, fileTitle, NULL);
+      SetCurrentDirectory(dir);
       if (f != NULL) {
 	SavePosition(f, 0, "");
       }
@@ -4862,12 +5070,26 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case IDM_SaveDiagram:
       defName = "diagram";
+      GetCurrentDirectory(MSG_SIZ, dir);
       f = OpenFileDialog(hwnd, "wb", defName,
 			 "bmp",
 			 DIAGRAM_FILT,
 			 _("Save Diagram to File"), NULL, fileTitle, NULL);
+      SetCurrentDirectory(dir);
       if (f != NULL) {
 	SaveDiagram(f);
+      }
+      break;
+
+    case IDM_SaveSelected:
+      GetCurrentDirectory(MSG_SIZ, dir);
+      f = OpenFileDialog(hwnd, "a", "",
+			 "pgn",
+			 GAME_FILT,
+			 _("Save Game to File"), NULL, fileTitle, NULL);
+      SetCurrentDirectory(dir);
+      if (f != NULL) {
+	SaveSelected(f, 0, "");
       }
       break;
 
@@ -4999,12 +5221,14 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
       break;
 
     case IDM_Match: // [HGM] match: flows into next case, after setting Match Mode and nr of Games
+      if(matchMode) EnableMenuItem(GetMenu(hwndMain), IDM_Match, MF_BYCOMMAND|MF_GRAYED);
       MatchEvent(2); // distinguish from command-line-triggered case (matchMode=1)
       break;
 
     case IDM_TwoMachines:
       TwoMachinesEvent();
       /*
+
        * refresh the tags dialog only if it's visible
        */
       if (gameMode == TwoMachinesPlay && IsWindowVisible(editTagsDialog)) {
@@ -5097,7 +5321,9 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
       break;
 
     case IDM_Rematch:
+
       RematchEvent();
+
       break;
 
     case IDM_CallFlag:
@@ -5151,6 +5377,8 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
       ForwardEvent();
       SetFocus(hwndMain);
       break;
+
+
 
     case IDM_ToStart:
       ToStartEvent();
@@ -5450,6 +5678,7 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case EP_BlackCannon:
       EditPositionMenuEvent(BlackCannon, fromX, fromY);
+
       fromX = fromY = -1;
       break;
 
@@ -5586,7 +5815,7 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     if( hwnd == hwndMain && appData.useStickyWindows ) {
         LPWINDOWPOS lpwp = (LPWINDOWPOS) lParam;
 
-        if( ((lpwp->flags & SWP_NOMOVE) == 0) && ((lpwp->flags & SWP_NOSIZE) != 0) ) {
+        if( ((lpwp->flags & SWP_NOMOVE) == 0) /*&& ((lpwp->flags & SWP_NOSIZE) != 0)*/ ) { // [HGM] in Win8 size always accompanies move?
             /* Window is moving */
             RECT rcMain;
 
@@ -5603,6 +5832,7 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
             ReattachAfterMove( &rcMain, lpwp->x, lpwp->y, hwndConsole, &wpConsole );
 	    wpMain.x = lpwp->x;
             wpMain.y = lpwp->y;
+
         }
     }
     break;
@@ -5655,6 +5885,8 @@ WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
   default:	/* Passes it on if unprocessed */
     return (DefWindowProc(hwnd, message, wParam, lParam));
   }
+
+
   return 0;
 }
 
@@ -6123,6 +6355,8 @@ InitComboStringsFromOption(HANDLE hwndCombo, char *str)
     str = buf1;
   }
 
+
+
   SendMessage(hwndCombo, CB_RESETCONTENT, 0, 0);
 
   for (;;) {
@@ -6246,14 +6480,16 @@ StartupDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
         safeStrCpy(buf, "/fcp=", sizeof(buf)/sizeof(buf[0]) );
 	GetDlgItemText(hDlg, OPT_ChessEngineName, buf + strlen(buf), sizeof(buf) - strlen(buf));
         p = buf;
-	comboLine = strdup(p+5); // [HGM] recent: remember complete line of first combobox
+	currentEngine[0] = strdup(p+5); // [HGM] recent: remember complete line of first combobox
 	ParseArgs(StringGet, &p);
 	safeStrCpy(buf, singleList ? "/fcp=" : "/scp=", sizeof(buf)/sizeof(buf[0]) );
 	GetDlgItemText(hDlg, OPT_SecondChessEngineName, buf + strlen(buf), sizeof(buf) - strlen(buf));
         p = buf;
+	currentEngine[1] = strdup(p+5); // [HGM] also remember engine line of 2nd for saving its settings
 	SwapEngines(singleList); // temporarily swap first and second, to load a second 'first', ...
 	ParseArgs(StringGet, &p);
 	SwapEngines(singleList); // ... and then make it 'second'
+
 	appData.noChessProgram = FALSE;
 	appData.icsActive = FALSE;
       } else if (IsDlgButtonChecked(hDlg, OPT_ChessServer)) {
@@ -6272,6 +6508,7 @@ StartupDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 	appData.icsActive = FALSE;
       } else {
 	MessageBox(hDlg, _("Choose an option, or cancel to exit"),
+
 		   _("Option Error"), MB_OK|MB_ICONEXCLAMATION);
 	return TRUE;
       }
@@ -6344,7 +6581,7 @@ LRESULT CALLBACK
 CommentDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
   static HANDLE hwndText = NULL;
-  int len, newSizeX, newSizeY, flags;
+  int len, newSizeX, newSizeY;
   static int sizeX, sizeY;
   char *str;
   RECT rect;
@@ -6372,7 +6609,6 @@ CommentDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
     /* Size and position the dialog */
     if (!commentDialog) {
       commentDialog = hDlg;
-      flags = SWP_NOZORDER;
       GetClientRect(hDlg, &rect);
       sizeX = rect.right;
       sizeY = rect.bottom;
@@ -6564,6 +6800,10 @@ TypeInMoveDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
       shiftKey = GetKeyState(VK_SHIFT) < 0; // [HGM] remember last shift status
       GetDlgItemText(hDlg, OPT_Move, move, sizeof(move));
+
+#ifdef JAWS
+      if(strlen(move) == 1 && !isdigit(*move)) SayPieceType(*move); else
+#endif
       TypeInDoneEvent(move);
       EndDialog(hDlg, TRUE);
       return TRUE;
@@ -6618,7 +6858,7 @@ TypeInNameDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
     case IDOK:
       GetDlgItemText(hDlg, OPT_Name, move, sizeof(move));
       appData.userName = strdup(move);
-      SetUserLogo();
+      SetUserLogo(); DisplayLogos();
       SetGameInfo();
       if(gameMode == MachinePlaysWhite || gameMode == MachinePlaysBlack) {
 	snprintf(move, MSG_SIZ, "%s vs. %s", gameInfo.white, gameInfo.black);
@@ -6689,8 +6929,10 @@ ErrorPopUp(char *title, char *content)
   if (modal) {
     MessageBox(NULL, errorMessage, errorTitle, MB_OK|MB_ICONEXCLAMATION);
   } else {
+    int i, n = 0;
+    for(i=0; errorMessage[i]; i++) n += (errorMessage[i] == '\n');
     lpProc = MakeProcInstance((FARPROC)ErrorDialog, hInst);
-    CreateDialog(hInst, MAKEINTRESOURCE(DLG_Error),
+    CreateDialog(hInst, MAKEINTRESOURCE(n > 4 ? DLG_Big : DLG_Error),
 		 hwndMain, (DLGPROC)lpProc);
     FreeProcInstance(lpProc);
   }
@@ -6709,7 +6951,6 @@ ErrorPopDown()
 LRESULT CALLBACK
 ErrorDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-  HANDLE hwndText;
   RECT rChild;
 
   switch (message) {
@@ -6733,7 +6974,6 @@ ErrorDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
     errorDialog = hDlg;
     SetWindowText(hDlg, errorTitle);
-    hwndText = GetDlgItem(hDlg, OPT_ErrorText);
     SetDlgItemText(hDlg, OPT_ErrorText, errorMessage);
     return FALSE;
 
@@ -6759,7 +6999,6 @@ HWND gothicDialog = NULL;
 LRESULT CALLBACK
 GothicDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-  HANDLE hwndText;
   RECT rChild;
   int height = GetSystemMetrics(SM_CYCAPTION)+GetSystemMetrics(SM_CYFRAME);
 
@@ -6778,7 +7017,6 @@ GothicDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
     */
     gothicDialog = hDlg;
     SetWindowText(hDlg, errorTitle);
-    hwndText = GetDlgItem(hDlg, OPT_ErrorText);
     SetDlgItemText(hDlg, OPT_ErrorText, errorMessage);
     return FALSE;
 
@@ -6831,6 +7069,7 @@ GothicPopUp(char *title, VariantClass variant)
 static char *history[HISTORY_SIZE];
 int histIn = 0, histP = 0;
 
+
 VOID
 SaveInHistory(char *cmd)
 {
@@ -6843,6 +7082,7 @@ SaveInHistory(char *cmd)
   histIn = (histIn + 1) % HISTORY_SIZE;
   if (history[histIn] != NULL) {
     free(history[histIn]);
+
     history[histIn] = NULL;
   }
   histP = histIn;
@@ -6874,6 +7114,7 @@ HMENU
 LoadIcsTextMenu(IcsTextMenuEntry *e)
 {
   HMENU hmenu, h;
+
   int i = 0;
   hmenu = LoadMenu(hInst, "TextMenu");
   h = GetSubMenu(hmenu, 0);
@@ -7554,20 +7795,23 @@ DisplayAClock(HDC hdc, int timeRemaining, int highlight,
               RECT *rect, char *color, char *flagFell)
 {
   char buf[100];
-  char *str;
+  char *str = buf, *p;
   COLORREF oldFg, oldBg;
   HFONT oldFont;
 
   if (twoBoards && partnerUp) return;
-  if (appData.clockMode) {
-    if (tinyLayout)
+  if (appData.clockMode && highlight < 2) { // highlight used as kludge to force printing of message
+    if (tinyLayout == 2)
       snprintf(buf, sizeof(buf)/sizeof(buf[0]), "%c %s %s", color[0], TimeString(timeRemaining), flagFell);
     else
-      snprintf(buf, sizeof(buf)/sizeof(buf[0]), "%s:%c%s %s", color, (logoHeight>0 ? 0 : ' '), TimeString(timeRemaining), flagFell);
+      snprintf(buf, sizeof(buf)/sizeof(buf[0]), "%s:_%s %s", color, TimeString(timeRemaining), flagFell);
     str = buf;
   } else {
-    str = color;
+    highlight &= 1;
+    snprintf(buf, 100, "%s", color);
   }
+  p = strchr(str, '_');
+  if(p) *p = (logoHeight > 0 ? 0 : ' ');
 
   if (highlight) {
     oldFg = SetTextColor(hdc, RGB(255, 255, 255)); /* white */
@@ -7576,6 +7820,7 @@ DisplayAClock(HDC hdc, int timeRemaining, int highlight,
     oldFg = SetTextColor(hdc, RGB(0, 0, 0)); /* black */
     oldBg = SetBkColor(hdc, RGB(255, 255, 255)); /* white */
   }
+
   oldFont = SelectObject(hdc, font[boardSize][CLOCK_FONT]->hf);
 
   JAWS_SILENCE
@@ -7583,9 +7828,9 @@ DisplayAClock(HDC hdc, int timeRemaining, int highlight,
   ExtTextOut(hdc, rect->left + MESSAGE_LINE_LEFTMARGIN,
 	     rect->top, ETO_CLIPPED|ETO_OPAQUE,
 	     rect, str, strlen(str), NULL);
-  if(logoHeight > 0 && appData.clockMode) {
+  if(logoHeight > 0 && p) {
       RECT r;
-      str += strlen(color)+2;
+      str = p + 1;
       r.top = rect->top + logoHeight/2;
       r.left = rect->left;
       r.right = rect->right;
@@ -7653,8 +7898,10 @@ DoWriteFile(HANDLE hFile, char *buf, int count, DWORD *outCount,
       else
 	err = GetLastError();
     }
+
   }
   return err;
+
 }
 
 /* [AS] If input is line by line and a line exceed the buffer size, force an error */
@@ -7675,6 +7922,7 @@ void CheckForInputBufferFull( InputSource * is )
 
             is->error = ERROR_BROKEN_PIPE; /* [AS] Just any non-successful code! */
             is->count = (DWORD) -1;
+
             is->next = is->buf;
         }
     }
@@ -7891,6 +8139,7 @@ Enables gnuEnables[] = {
   { IDM_Annotate, MF_BYCOMMAND|MF_GRAYED },
   { IDM_NewChat, MF_BYCOMMAND|MF_GRAYED },
 
+
   // Needed to switch from ncp to GNU mode on Engine Load
   { ACTION_POS, MF_BYPOSITION|MF_ENABLED },
   { IDM_MachineWhite, MF_BYCOMMAND|MF_ENABLED },
@@ -7958,14 +8207,19 @@ Enables ncpEnables[] = {
   { IDM_Annotate, MF_BYCOMMAND|MF_GRAYED },
   { IDM_MoveNow, MF_BYCOMMAND|MF_GRAYED },
   { IDM_RetractMove, MF_BYCOMMAND|MF_GRAYED },
+#ifdef JAWS
+  { IDM_TimeControl, MF_BYCOMMAND|MF_ENABLED },
+  { IDM_Sounds, MF_BYCOMMAND|MF_ENABLED },
+#else
   { IDM_TimeControl, MF_BYCOMMAND|MF_GRAYED },
+  { IDM_Sounds, MF_BYCOMMAND|MF_GRAYED },
+#endif
   { IDM_Hint, MF_BYCOMMAND|MF_GRAYED },
   { IDM_Book, MF_BYCOMMAND|MF_GRAYED },
   { IDM_MachineBoth, MF_BYCOMMAND|MF_GRAYED },
   { IDM_NewChat, MF_BYCOMMAND|MF_GRAYED },
   { IDM_Engine1Options, MF_BYCOMMAND|MF_GRAYED },
   { IDM_Engine2Options, MF_BYCOMMAND|MF_GRAYED },
-  { IDM_Sounds, MF_BYCOMMAND|MF_GRAYED },
   { -1, -1 }
 };
 
@@ -8120,6 +8374,8 @@ ModeHighlight()
     nowChecked = 0;
     break;
   }
+  if(prevChecked == IDM_TwoMachines) // [HGM] 'Machine Match' might have gotten disabled when stopping match
+    EnableMenuItem(GetMenu(hwndMain), IDM_Match, MF_BYCOMMAND|MF_ENABLED);
   CheckMark(prevChecked, MF_UNCHECKED);
   CheckMark(nowChecked, MF_CHECKED);
   CheckMark(IDM_Match, matchMode && matchGame < appData.matchGames ? MF_CHECKED : MF_UNCHECKED);
@@ -8364,6 +8620,7 @@ DisplayFatalError(char *str, int error, int exitStatus)
     fprintf(debugFP, "%s: %s\n", label, str);
   }
   if (appData.popupExitMessage) {
+    if(appData.icsActive) SendToICS("logout\n"); // [HGM] make sure no new games will be started!
     (void) MessageBox(hwndMain, str, label, MB_OK|
 		      (exitStatus ? MB_ICONSTOP : MB_ICONINFORMATION));
   }
@@ -8377,6 +8634,11 @@ DisplayInformation(char *str)
   (void) MessageBox(hwndMain, str, _("Information"), MB_OK|MB_ICONINFORMATION);
 }
 
+char *
+Shorten (char *s)
+{
+  return s;
+}
 
 VOID
 DisplayNote(char *str)
@@ -8518,6 +8780,7 @@ HWND gameListOptionsDialog;
 
 // low-level front-end: clear text edit / list widget
 void
+
 GLT_ClearList()
 {
     SendDlgItemMessage( gameListOptionsDialog, IDC_GameListTags, LB_RESETCONTENT, 0, 0 );
@@ -8547,6 +8810,7 @@ GLT_GetFromList( int index, char *name )
 	    if( SendDlgItemMessage( gameListOptionsDialog, IDC_GameListTags, LB_GETTEXT, index, (LPARAM) name ) != LB_ERR )
 		return TRUE;
     }
+
     return FALSE;
 }
 
@@ -8626,8 +8890,11 @@ int GameListOptions()
     result = DialogBoxParam( hInst, MAKEINTRESOURCE(DLG_GameListOptions), hwndMain, (DLGPROC)lpProc, (LPARAM)lpUserGLT );
 
     if( result == 0 ) {
+        char *oldTags = appData.gameListTags;
         /* [AS] Memory leak here! */
         appData.gameListTags = strdup( lpUserGLT ); 
+        if(strcmp(oldTags, appData.gameListTags)) // [HGM] redo Game List when we changed something
+            GameListToListBox(NULL, TRUE, ".", NULL, FALSE, FALSE); // "." as filter is kludge to select all
     }
 
     return result;
@@ -8655,7 +8922,7 @@ DisplayIcsInteractionTitle(char *str)
 }
 
 void
-DrawPosition(int fullRedraw, Board board)
+DrawPositionX(int fullRedraw, Board board)
 {
   HDCDrawPosition(NULL, (BOOLEAN) fullRedraw, board); 
 }
@@ -8708,6 +8975,13 @@ EditCommentPopUp(int index, char *title, char *str)
   EitherCommentPopUp(index, title, str, TRUE);
 }
 
+
+int
+Roar()
+{
+  MyPlaySound(&sounds[(int)SoundRoar]);
+  return 1;
+}
 
 VOID
 RingBell()
@@ -8836,6 +9110,8 @@ StartClockTimer(long millisec)
 			     (UINT) millisec, NULL);
 }
 
+static char clockMsg[2][MSG_SIZ];
+
 void
 DisplayWhiteClock(long timeRemaining, int highlight)
 {
@@ -8845,8 +9121,9 @@ DisplayWhiteClock(long timeRemaining, int highlight)
   if(appData.noGUI) return;
   hdc = GetDC(hwndMain);
   if (!IsIconic(hwndMain)) {
-    DisplayAClock(hdc, timeRemaining, highlight, 
-			flipClock ? &blackRect : &whiteRect, _("White"), flag);
+    int m = (clockMsg[0][0] != 0); 
+    DisplayAClock(hdc, timeRemaining, highlight + 2*m, 
+			flipClock ? &blackRect : &whiteRect, m ? clockMsg[0] : _("White"), flag);
   }
   if (highlight && iconCurrent == iconBlack) {
     iconCurrent = iconWhite;
@@ -8866,11 +9143,13 @@ DisplayBlackClock(long timeRemaining, int highlight)
   HDC hdc;
   char *flag = blackFlag && gameMode == TwoMachinesPlay ? "(!)" : "";
 
+
   if(appData.noGUI) return;
   hdc = GetDC(hwndMain);
   if (!IsIconic(hwndMain)) {
-    DisplayAClock(hdc, timeRemaining, highlight, 
-			flipClock ? &whiteRect : &blackRect, _("Black"), flag);
+    int m = (clockMsg[1][0] != 0); 
+    DisplayAClock(hdc, timeRemaining, highlight + 2*m, 
+			flipClock ? &whiteRect : &blackRect, m ? clockMsg[1] : _("Black"), flag);
   }
   if (highlight && iconCurrent == iconWhite) {
     iconCurrent = iconBlack;
@@ -8884,6 +9163,11 @@ DisplayBlackClock(long timeRemaining, int highlight)
     PostMessage(hwndConsole, WM_SETICON, (WPARAM) TRUE, (LPARAM) iconCurrent);
 }
 
+void
+SetClockMessage (int color, char *msg)
+{
+  safeStrCpy(clockMsg[color], !msg ? "" : *msg ? msg : clockMsg[!color], MSG_SIZ);
+}
 
 int
 LoadGameTimerRunning()
@@ -8912,13 +9196,15 @@ AutoSaveGame()
 {
   char *defName;
   FILE *f;
-  char fileTitle[MSG_SIZ];
+  char fileTitle[MSG_SIZ], dir[MSG_SIZ];
 
   defName = DefaultFileName(appData.oldSaveStyle ? "gam" : "pgn");
+  GetCurrentDirectory(MSG_SIZ, dir);
   f = OpenFileDialog(hwndMain, "a", defName,
 		     appData.oldSaveStyle ? "gam" : "pgn",
 		     GAME_FILT, 
 		     _("Save Game to File"), NULL, fileTitle, NULL);
+  GetCurrentDirectory(MSG_SIZ, dir);
   if (f != NULL) {
     SaveGame(f, 0, "");
     fclose(f);
@@ -8974,6 +9260,7 @@ IDLE_PRIORITY_CLASS         0x00000040
 */
         if (nice < -15) return 0x00000080;
         if (nice < 0)   return 0x00008000;
+
         if (nice == 0)  return 0x00000020;
         if (nice < 15)  return 0x00004000;
         return 0x00000040;
@@ -9018,7 +9305,7 @@ void RunCommand(char *cmdLine)
    later.
 */
 int
-StartChildProcess(char *cmdLine, char *dir, ProcRef *pr)
+StartChildProcess(char *cmdLine, char *dir, ProcRef *pr, int priority)
 {
 #define BUFSIZE 4096
 
@@ -9127,7 +9414,7 @@ StartChildProcess(char *cmdLine, char *dir, ProcRef *pr)
 
   if (appData.niceEngines){ // [HGM] nice: adjust engine proc priority
     if(appData.debugMode) fprintf(debugFP, "nice engine proc to %d\n", appData.niceEngines);
-    SetPriorityClass(piProcInfo.hProcess, GetWin32Priority(appData.niceEngines));
+    SetPriorityClass(piProcInfo.hProcess, GetWin32Priority(priority));
   }
 
   /* Close the handles we don't need in the parent */
@@ -9177,15 +9464,15 @@ DestroyChildProcess(ProcRef pr, int/*boolean*/ signal)
     /*!!if (signal) GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, cp->pid);*/
 
     /* [AS] Special termination modes for misbehaving programs... */
-    if( signal == 9 ) { 
+    if( signal & 8 ) { 
         result = TerminateProcess( cp->hProcess, 0 );
 
         if ( appData.debugMode) {
             fprintf( debugFP, "Terminating process %lu, result=%d\n", cp->pid, result );
         }
     }
-    else if( signal == 10 ) {
-        DWORD dw = WaitForSingleObject( cp->hProcess, 3*1000 ); // Wait 3 seconds at most
+    else if( signal & 4 ) {
+        DWORD dw = WaitForSingleObject( cp->hProcess, appData.delayAfterQuit*1000 + 50 ); // Wait 3 seconds at most
 
         if( dw != WAIT_OBJECT_0 ) {
             result = TerminateProcess( cp->hProcess, 0 );
@@ -9257,7 +9544,7 @@ OpenTelnet(char *host, char *port, ProcRef *pr)
   } else {
     snprintf(cmdLine, MSG_SIZ, "%s %s %s", appData.telnetProgram, host, port);
   }
-  return StartChildProcess(cmdLine, "", pr);
+  return StartChildProcess(cmdLine, "", pr, 0);
 }
 
 
@@ -9452,6 +9739,7 @@ OpenRcmd(char* host, char* user, char* cmd, ProcRef* pr)
       return WSAEADDRINUSE;
     }
     if (s == INVALID_SOCKET) {
+
       if ((s = socket(PF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET) {
 	err = WSAGetLastError();
 	WSACleanup();
@@ -9682,6 +9970,7 @@ OutputToProcess(ProcRef pr, char *message, int count, int *outError)
   int outCount = SOCKET_ERROR;
   ChildProc *cp = (ChildProc *) pr;
   static OVERLAPPED ovl;
+
   static int line = 0;
 
   if (pr == NoProc)
@@ -9883,16 +10172,27 @@ AnimateMove(board, fromX, fromY, toX, toY)
      int toX;
      int toY;
 {
-  ChessSquare piece;
+  ChessSquare piece, victim = EmptySquare, victim2 = EmptySquare;
+  int x = toX, y = toY, x2 = kill2X;
   POINT start, finish, mid;
   POINT frames[kFactor * 2 + 1];
   int nFrames, n;
+
+  if(killX >= 0 && IS_LION(board[fromY][fromX])) Roar();
 
   if (!appData.animate) return;
   if (doingSizing) return;
   if (fromY < 0 || fromX < 0) return;
   piece = board[fromY][fromX];
   if (piece >= EmptySquare) return;
+
+  if(x2 >= 0) toX = kill2X, toY = kill2Y,  victim = board[killY][killX], victim2 = board[kill2Y][kill2X]; else
+  if(killX >= 0) toX = killX, toY = killY, victim = board[killY][killX]; // [HGM] lion: first to kill square
+
+  animInfo.from.x = fromX;
+  animInfo.from.y = fromY;
+
+again:
 
   ScreenSquare(fromX, fromY, &start);
   ScreenSquare(toX, toY, &finish);
@@ -9918,20 +10218,31 @@ AnimateMove(board, fromX, fromY, toX, toY)
   else
     Tween(&start, &mid, &finish, kFactor, frames, &nFrames);
 
-  animInfo.from.x = fromX;
-  animInfo.from.y = fromY;
   animInfo.to.x = toX;
   animInfo.to.y = toY;
   animInfo.lastpos = start;
   animInfo.piece = piece;
   for (n = 0; n < nFrames; n++) {
     animInfo.pos = frames[n];
-    DrawPosition(FALSE, NULL);
+    DrawPosition(FALSE, board);
     animInfo.lastpos = animInfo.pos;
     Sleep(appData.animSpeed);
   }
   animInfo.pos = finish;
-  DrawPosition(FALSE, NULL);
+  DrawPosition(FALSE, board);
+
+  if(toX == x2 && toY == kill2Y) {
+    fromX = toX; fromY = toY; toX = killX; toY = killY; x2 = -1;
+    board[kill2Y][kill2X] = EmptySquare; goto again;
+  } // second leg
+  if(toX != x || toY != y) {
+    fromX = toX; fromY = toY; toX = x; toY = y;
+    board[killY][killX] = EmptySquare; goto again;
+  } // second leg
+
+if(victim2 != EmptySquare) board[kill2Y][kill2X] = victim2;
+if(victim  != EmptySquare) board[killY][killX] = victim;
+
   animInfo.piece = EmptySquare;
   Explode(board, fromX, fromY, toX, toY);
 }
@@ -10002,18 +10313,20 @@ SettingsPopUp(ChessProgramState *cps)
 
 int flock(int fid, int code)
 {
+    int res;
     HANDLE hFile = (HANDLE) _get_osfhandle(fid);
     OVERLAPPED ov;
     ov.hEvent = NULL;
     ov.Offset = 0;
     ov.OffsetHigh = 0;
     switch(code) {
-      case 1: LockFileEx(hFile, LOCKFILE_EXCLUSIVE_LOCK, 0, 1024, 0, &ov); break;   // LOCK_SH
-      case 2: LockFileEx(hFile, LOCKFILE_EXCLUSIVE_LOCK, 0, 1024, 0, &ov); break;   // LOCK_EX
-      case 3: UnlockFileEx(hFile, 0, 1024, 0, &ov); break; // LOCK_UN
+      case 1: res = LockFileEx(hFile, LOCKFILE_EXCLUSIVE_LOCK, 0, 1024, 0, &ov); break;   // LOCK_SH
+      case 2: res = LockFileEx(hFile, LOCKFILE_EXCLUSIVE_LOCK, 0, 1024, 0, &ov); break;   // LOCK_EX
+      case 3: res = UnlockFileEx(hFile, 0, 1024, 0, &ov); break; // LOCK_UN
+
       default: return -1;
     }
-    return 0;
+    return -!res;
 }
 
 char *
@@ -10033,6 +10346,6 @@ ActivateTheme (int new)
    InitTextures();
    if(new) InitDrawingColors();
    fontBitmapSquareSize = 0; // request creation of new font pieces
-   InitDrawingSizes(-2, 0);
+   InitDrawingSizes(boardSize, 0);
    InvalidateRect(hwndMain, NULL, TRUE);
 }

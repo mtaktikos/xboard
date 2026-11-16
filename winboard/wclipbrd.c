@@ -1,7 +1,8 @@
 /*
  * wclipbrd.c -- Clipboard routines for WinBoard
  *
- * Copyright 2000, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * Copyright 2000, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * Enhancements Copyright 2005 Alessandro Scotti
  *
@@ -42,7 +43,6 @@
 
 /* Imports from winboard.c */
 extern HWND hwndMain;
-Boolean ParseFEN(Board b, int *stm, char *FEN);
 
 /* File globals */
 static char *copyTemp;
@@ -260,6 +260,7 @@ VOID PasteGameFromString( char * buf )
 {
   FILE *f;
   size_t len;
+  int flip = appData.flipView;
   if (!pasteTemp) {
     pasteTemp = tempnam(NULL, "wbpt");
   }
@@ -276,7 +277,9 @@ VOID PasteGameFromString( char * buf )
     free(buf); /* [AS] */
     return;
   }
+  if(!appData.autoFlipView) appData.flipView = flipView;
   LoadGameFromFile(pasteTemp, 0, "Clipboard", TRUE);
+  appData.flipView = flip;
   free( buf ); /* [AS] */
 }
 
@@ -301,11 +304,12 @@ VOID PasteGameOrFENFromClipboard()
   Board dummyBoard; int dummy; // [HGM] paste any
 
   if (!PasteTextFromClipboard(&buf)) {
+
     return;
   }
 
   // [HGM] paste any: make still smarter, to allow pasting of games without tags, recognize FEN in stead
-  if(!ParseFEN(dummyBoard, &dummy, buf) ) {
+  if(!ParseFEN(dummyBoard, &dummy, buf, 0) ) {
       PasteGameFromString( buf );
   }
   else {

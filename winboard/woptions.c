@@ -1,7 +1,8 @@
 /*
  * woptions.c -- Options dialog box routines for WinBoard
  *
- * Copyright 2000, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ * Copyright 2000, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016 Free
+ * Software Foundation, Inc.
  *
  * Enhancements Copyright 2005 Alessandro Scotti
  *
@@ -210,6 +211,11 @@ GeneralOptionsDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
     CHECK_BOX(OPT_HighlightMoveArrow, appData.highlightMoveWithArrow);
     CHECK_BOX(OPT_AutoLogo, appData.autoLogo); // [HGM] logo
     CHECK_BOX(OPT_SmartMove, appData.oneClick); // [HGM] one-click
+    CHECK_BOX(OPT_AutoTags, appData.autoDisplayTags); // [HGM]
+    CHECK_BOX(OPT_AutoComment, appData.autoDisplayComment); // [HGM]
+    CHECK_BOX(OPT_Headers, appData.headers); // [HGM]
+    CHECK_BOX(OPT_Variations, appData.variations); // [HGM]
+    CHECK_BOX(OPT_AutoExtend, appData.autoExtend); // [HGM]
 
 #undef CHECK_BOX
 
@@ -259,6 +265,11 @@ GeneralOptionsDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
       appData.highlightMoveWithArrow=IS_CHECKED(OPT_HighlightMoveArrow);
       appData.autoLogo             =IS_CHECKED(OPT_AutoLogo); // [HGM] logo
       appData.oneClick             =IS_CHECKED(OPT_SmartMove); // [HGM] one-click
+      appData.autoDisplayTags      =IS_CHECKED(OPT_AutoTags); // [HGM]
+      appData.autoDisplayComment   =IS_CHECKED(OPT_AutoComment); // [HGM]
+      appData.headers              =IS_CHECKED(OPT_Headers); // [HGM]
+      appData.variations           =IS_CHECKED(OPT_Variations); // [HGM]
+      appData.autoExtend           =IS_CHECKED(OPT_AutoExtend); // [HGM]
 
 #undef IS_CHECKED
 
@@ -430,7 +441,7 @@ PaintSampleSquare(
   /*
    * clean up
    */
-  SelectObject(hdcMem, oldBrushPiece);
+  SelectObject(hdcMem, oldBrushSquare);
   SelectObject(hdcMem, oldPen);
   DeleteObject(brushPiece);
   DeleteObject(brushPieceDetail);
@@ -695,6 +706,7 @@ BoardOptionsDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
       }
       DeleteObject(pieces[0]);
       DeleteObject(pieces[1]);
+
       DeleteObject(pieces[2]);
       return TRUE;
 
@@ -813,7 +825,7 @@ BoardOptionsPopup(HWND hwnd)
   FreeProcInstance(lpProc);
 }
 
-int radioButton[] = {
+int radioButton[] = { // this is a remnant of the radiobuttons, and should be rewritten
     OPT_VariantNormal,
     -1, // Loadable
     OPT_VariantWildcastle,
@@ -838,7 +850,7 @@ int radioButton[] = {
     -1,
     -1,
     OPT_VariantShogi,
-    OPT_VariantXiangqi,
+    -1, // Chu
     OPT_VariantCourier,
     OPT_VariantGothic,
     OPT_VariantCapablanca,
@@ -853,34 +865,63 @@ int radioButton[] = {
     OPT_VariantGreat,
     -1, // Twilight,
     OPT_VariantMakruk,
-    OPT_VariantASEAN,
     OPT_VariantSChess,
     OPT_VariantGrand,
     OPT_VariantSpartan, // Spartan
+    OPT_VariantXiangqi,
+    OPT_VariantASEAN,
+    OPT_VariantLion,
+    -1,
+    OPT_VariantJanggi,
+    666,
     -2 // sentinel
 };
+
+VariantClass meaning[1000];
 
 VariantClass
 VariantWhichRadio(HWND hDlg)
 {
   int i=0, j;
-  while((j = radioButton[i++]) != -2) {
-	if(j == -1) continue; // no menu button
-	if(IsDlgButtonChecked(hDlg, j) &&
-	   (appData.noChessProgram || strstr(first.variants, VariantName(i-1)))) return (VariantClass) i-1;
+  *engineVariant = NULLCHAR;
+  HWND combo = GetDlgItem(hDlg, OPT_EngineVariant);
+  j = SendMessage(combo, CB_GETCURSEL, (WPARAM) 0, (LPARAM) 0);
+  if(j == CB_ERR) return gameInfo.variant; // nothing selected, keep old
+  i = meaning[j];
+  if(i == VariantUnknown) {
+    GetDlgItemText(hDlg, OPT_EngineVariant, engineVariant, MSG_SIZ);
   }
-  return gameInfo.variant; // If no button checked, keep old
+  return i;
 }
 
 void
 VariantShowRadio(HWND hDlg)
 {
-  int i=0, j;
-  CheckDlgButton(hDlg, radioButton[gameInfo.variant], TRUE);
+  char c = *engineVariant, *v, *p;
+  int i=0, j, nr = 0, current = 0;
+  HWND combo = GetDlgItem(hDlg, OPT_EngineVariant);
+  SendMessage(combo, CB_RESETCONTENT, 0, 0);
+  *engineVariant = NULLCHAR;  // [HGM] kludge to prevent VariantName will always return engineVariant
   while((j = radioButton[i++]) != -2) {
 	if(j == -1) continue; // no menu button
-	EnableWindow(GetDlgItem(hDlg, j), appData.noChessProgram || strstr(first.variants, VariantName(i-1)));
+	v = VariantName(i-1); p = strstr(first.variants, v);
+	if(p && p != first.variants && p[-1] != ',') p = NULL;
+	if(appData.noChessProgram || p && (!*v || strlen(v) == strlen(p) || p[strlen(v)] == ',')) {
+	   SendMessage(combo, CB_ADDSTRING, 0, (LPARAM) T_(v));
+           if(gameInfo.variant == i - 1) current = nr;
+	   meaning[nr++] = i - 1;
+        }
   }
+  *engineVariant = c;
+
+  for(i=0; ; i++) {
+    char *v = EngineDefinedVariant(&first, i); // get name of #i
+    if(!v || !*v) break;
+    SendMessage(combo, CB_ADDSTRING, 0, (LPARAM) v);
+    if(!strcmp(v, engineVariant)) current = nr;
+    meaning[nr++] = VariantUnknown;
+  }
+  SendMessage(combo, CB_SETCURSEL, (WPARAM) current, (LPARAM) 0);
 }
 
 LRESULT CALLBACK
@@ -937,7 +978,7 @@ NewVariantDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
       }
 
       gameInfo.variant = v;
-      appData.variant = VariantName(v);
+      ASSIGN(appData.variant, VariantName(v));
 
       appData.NrFiles = (int) GetDlgItemInt(hDlg, IDC_Files, NULL, FALSE );
       appData.NrRanks = (int) GetDlgItemInt(hDlg, IDC_Ranks, NULL, FALSE );
@@ -950,6 +991,9 @@ NewVariantDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
       shuffleOpenings = FALSE; /* [HGM] shuffle: possible shuffle reset when we switch */
       startedFromPositionFile = FALSE; /* [HGM] loadPos: no longer valid in new variant */
       appData.pieceToCharTable = NULL;
+      ASSIGN(appData.pieceNickNames, "");
+      ASSIGN(appData.colorNickNames, "");
+      ASSIGN(appData.men, "");
       Reset(TRUE, TRUE);
 
       return TRUE;
@@ -1174,6 +1218,7 @@ IcsOptionsDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
   COLORREF *colorref;
 
   switch (message) {
+
   case WM_INITDIALOG: /* message: initialize dialog box */
 
     mca = colorizeAttribs;
@@ -1397,6 +1442,9 @@ IcsOptionsDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
       ColorizeTextPopup(hDlg, ColorSeek);
       UpdateSampleText(hDlg, OPT_SampleSeek, &mca[ColorSeek]);
       break;
+
+
+
 
     case OPT_ChooseNormalColor:
       ColorizeTextPopup(hDlg, ColorNormal);
@@ -1776,6 +1824,7 @@ FontsOptionsPopup(HWND hwnd)
 SoundComboData soundComboData[] = {
   {N_("Move"), NULL},
   {N_("Bell"), NULL},
+  {N_("Roar"), NULL},
   {N_("ICS Alarm"), NULL},
   {N_("ICS Win"), NULL},
   {N_("ICS Loss"), NULL},
@@ -2501,6 +2550,7 @@ LoadOptions(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
     SetDlgItemInt(hDlg, OPT_Stretch, appData.stretch, FALSE);
     CheckDlgButton(hDlg, OPT_Reversed, appData.ignoreColors);
     CheckDlgButton(hDlg, OPT_Mirror, appData.findMirror);
+    SetDlgItemText(hDlg, OPT_Counts,  "");
     switch (appData.searchMode) {
     case 1:
       CheckDlgButton(hDlg, OPT_Exact, TRUE);
@@ -2545,6 +2595,10 @@ LoadOptions(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
       appData.searchMode = LoadOptionsWhichRadio(hDlg);
       appData.ignoreColors = IsDlgButtonChecked(hDlg, OPT_Reversed);
       appData.findMirror   = IsDlgButtonChecked(hDlg, OPT_Mirror);
+      GetDlgItemText(hDlg, OPT_Counts, buf, MSG_SIZ);
+      appData.minPieces = appData.maxPieces = 0;
+      sscanf(buf, "%d-%d", &appData.minPieces, &appData.maxPieces);
+      if(appData.maxPieces < appData.minPieces) appData.maxPieces = appData.minPieces;
       EndDialog(hDlg, TRUE);
       return TRUE;
 
@@ -3004,6 +3058,13 @@ BOOL BrowseForFolder( const char * title, char * path )
     return result;
 }
 
+int
+IsMultiFormat(char *s)
+{
+  char *p = strchr(s, ':');
+  return p && p != s+1;
+}
+
 LRESULT CALLBACK UciOptionsDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
   char buf[MAX_PATH];
@@ -3019,7 +3080,10 @@ LRESULT CALLBACK UciOptionsDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM
     /* Initialize the dialog items */
     SetDlgItemText( hDlg, IDC_PolyglotDir, appData.polyglotDir );
     SetDlgItemInt( hDlg, IDC_HashSize, appData.defaultHashSize, TRUE );
+    if(appData.defaultPathEGTB[0])
     SetDlgItemText( hDlg, IDC_PathToEGTB, appData.defaultPathEGTB );
+    else
+    SetDlgItemText( hDlg, IDC_PathToEGTB, appData.egtFormats );
     SetDlgItemInt( hDlg, IDC_SizeOfEGTB, appData.defaultCacheSizeEGTB, TRUE );
     CheckDlgButton( hDlg, IDC_UseBook, (BOOL) appData.usePolyglotBook );
     SetDlgItemText( hDlg, IDC_BookFile, appData.polyglotBook );
@@ -3033,6 +3097,8 @@ LRESULT CALLBACK UciOptionsDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM
     SetDlgItemInt( hDlg, IDC_Games, appData.defaultMatchGames, TRUE );
 
     SendDlgItemMessage( hDlg, IDC_PolyglotDir, EM_SETSEL, 0, -1 );
+    // [HGM] Yet another ponder duplicate
+    CheckDlgButton( hDlg, OPT_PonderNextMove, (BOOL) appData.ponderNextMove );
 
     return TRUE;
 
@@ -3044,14 +3110,19 @@ LRESULT CALLBACK UciOptionsDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM
       appData.defaultHashSize = GetDlgItemInt(hDlg, IDC_HashSize, NULL, FALSE );
       appData.defaultCacheSizeEGTB = GetDlgItemInt(hDlg, IDC_SizeOfEGTB, NULL, FALSE );
       GetDlgItemText( hDlg, IDC_PathToEGTB, buf, sizeof(buf) );
-      appData.defaultPathEGTB = strdup(buf);
+      if(IsMultiFormat(buf)) {
+        ASSIGN(appData.egtFormats, buf);
+      } else {
+        ASSIGN(appData.defaultPathEGTB, buf);
+      }
       GetDlgItemText( hDlg, IDC_BookFile, buf, sizeof(buf) );
       appData.polyglotBook = strdup(buf);
       appData.usePolyglotBook = (Boolean) IsDlgButtonChecked( hDlg, IDC_UseBook );
-      // [HGM] smp: get nr of cores:
+      // [HGM] smp: get nr of cores and ponder:
       oldCores = appData.smpCores;
       appData.smpCores = GetDlgItemInt(hDlg, IDC_Cores, NULL, FALSE );
       if(appData.smpCores != oldCores) NewSettingEvent(FALSE, &(first.maxCores), "cores", appData.smpCores);
+      PonderNextMoveEvent((Boolean) IsDlgButtonChecked( hDlg, OPT_PonderNextMove ));
       // [HGM] book: read tick boxes for own book use
       appData.firstHasOwnBookUCI  = (Boolean) IsDlgButtonChecked( hDlg, IDC_OwnBook1 );
       appData.secondHasOwnBookUCI = (Boolean) IsDlgButtonChecked( hDlg, IDC_OwnBook2 );
@@ -3086,6 +3157,7 @@ LRESULT CALLBACK UciOptionsDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM
           ofn.hwndOwner = hDlg;
           ofn.hInstance = hInst;
           ofn.lpstrFilter = filter;
+
           ofn.lpstrFile = buf;
           ofn.nMaxFile = sizeof(buf);
           ofn.lpstrTitle = _("Choose Book");
